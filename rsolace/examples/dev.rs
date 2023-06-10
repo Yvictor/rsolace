@@ -77,10 +77,9 @@ fn main() {
         let session_func_info_ptr: *mut rsolace_sys::solClient_session_createFuncInfo_t =
             &mut session_func_info;
 
-        const DEFAULT_CREATE_THREAD: &[u8] = b"1\0";
         let mut conext_props: [*const i8; 3] = [
             rsolace_sys::SOLCLIENT_CONTEXT_PROP_CREATE_THREAD.as_ptr() as *const i8,
-            DEFAULT_CREATE_THREAD.as_ptr() as *const i8,
+            rsolace_sys::SOLCLIENT_PROP_ENABLE_VAL.as_ptr() as *const i8,
             std::ptr::null(),
         ];
         let conext_props_ptr: *mut *const i8 = conext_props.as_mut_ptr();
