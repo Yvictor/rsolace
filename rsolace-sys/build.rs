@@ -16,8 +16,10 @@ fn main() {
         .clang_arg("-Isolclient-7.25.0.10/include")
         .allowlist_function("^solClient_.*")
         .allowlist_var("^SOLCLIENT_.*")
-        
+        // .dynamic_library_name("solclient")
+        // .dynamic_link_require_all(true)
         .size_t_is_usize(true)
+        .generate_comments(false)
         // Tell cargo to invalidate the built crate whenever any of the
         // included header files changed.
         // .parse_callbacks(Box::new(bindgen::CargoCallbacks))

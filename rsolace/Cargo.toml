@@ -7,3 +7,5 @@ edition = "2021"
 
 [dependencies]
 rsolace-sys = { path = "../rsolace-sys" }
+tracing = "0.1"
+tracing-subscriber = "0.3"
