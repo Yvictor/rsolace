@@ -1,7 +1,7 @@
 use super::types::SolClientReturnCode;
 use enum_primitive::FromPrimitive;
 use failure::{bail, Error};
-use rsolace_sys::{self, solClient_msg_alloc};
+use rsolace_sys::{self, solClient_msg_alloc, solClient_msg_dump};
 use std::ffi::c_void;
 // use std::option::Option;
 use std::ptr::null_mut;
@@ -62,6 +62,17 @@ impl SolMsg {
             let v: Vec<u8> =
                 std::slice::from_raw_parts(data_ptr as *const u8, data_len as usize).to_vec();
             Ok(v)
+        }
+    }
+
+    pub fn dump(&self, display_only: bool) -> Option<String> {
+        if display_only {
+            unsafe {
+                solClient_msg_dump(self.msg_p, null_mut(), 0);
+                None
+            }
+        } else {
+            None
         }
     }
 }

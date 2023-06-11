@@ -7,47 +7,14 @@ use std::option::Option;
 use std::ptr::{null, null_mut};
 
 // TODO fn pointer to struct
-unsafe extern "C" fn message_receive_callback(
-    _opaque_session_p: rsolace_sys::solClient_opaqueSession_pt,
-    msg_p: rsolace_sys::solClient_opaqueMsg_pt,
-    _user_p: *mut std::ffi::c_void,
-) -> rsolace_sys::solClient_rxMsgCallback_returnCode_t {
-    // Implementation of your message receive callback function goes here
-    // ...
-    // Return appropriate value of solClient_rxMsgCallback_returnCode_t
-    let solmsg = SolMsg::from_ptr(msg_p);
-    match solmsg {
-        Ok(msg) => {
-            msg;
-        },
-        Err(e) => {
-            tracing::error!("msg error: {}", e);
-        }
-    }
-    println!("rec msg");
-    rsolace_sys::solClient_rxMsgCallback_returnCode_SOLCLIENT_CALLBACK_OK
-}
 
-unsafe extern "C" fn info_receive_callback(
-    _opaque_session_p: rsolace_sys::solClient_opaqueSession_pt,
-    event_info_p: rsolace_sys::solClient_session_eventCallbackInfo_pt,
-    _user_p: *mut std::ffi::c_void,
-) {
-    let event_info = *event_info_p;
-    let res = rsolace_sys::solClient_session_eventToString(event_info.sessionEvent);
-    println!(
-        "event: {}, event code: {}, info: {}",
-        CStr::from_ptr(res).to_str().unwrap(),
-        event_info.responseCode,
-        CStr::from_ptr(event_info.info_p).to_str().unwrap(),
-    );
-}
 
 pub struct SolClient {
     context_p: rsolace_sys::solClient_opaqueContext_pt,
     // context_func_info: rsolace_sys::solClient_context_createFuncInfo_t,
     session_p: rsolace_sys::solClient_opaqueSession_pt,
     session_func_info: Option<rsolace_sys::solClient_session_createFuncInfo_t>,
+    rx_msg_callback: Option<fn(SolMsg)>,
 }
 
 impl SolClient {
@@ -85,6 +52,7 @@ impl SolClient {
                 // context_func_info: context_func_info,
                 session_p: null_mut(),
                 session_func_info: None,
+                rx_msg_callback: None,
             })
         }
     }
@@ -120,6 +88,48 @@ impl SolClient {
         ];
         let session_props_ptr: *mut *const i8 = session_props.as_mut_ptr();
         let user_p: *mut c_void = self as *mut _ as *mut c_void;
+
+        unsafe extern "C" fn message_receive_callback(
+            _opaque_session_p: rsolace_sys::solClient_opaqueSession_pt,
+            msg_p: rsolace_sys::solClient_opaqueMsg_pt,
+            user_p: *mut std::ffi::c_void,
+        ) -> rsolace_sys::solClient_rxMsgCallback_returnCode_t {
+            // Implementation of your message receive callback function goes here
+            // ...
+            // Return appropriate value of solClient_rxMsgCallback_returnCode_t
+            let solmsg = SolMsg::from_ptr(msg_p);
+            match solmsg {
+                Ok(msg) => {
+                    let self_ref: &mut SolClient = &mut *(user_p as *mut SolClient);
+                    if let Some(cb) = self_ref.rx_msg_callback {
+                        cb(msg);
+                    } else {
+                        msg.dump(true);
+                    }
+                },
+                Err(e) => {
+                    tracing::error!("msg error: {}", e);
+                }
+            }
+            println!("rec msg");
+            rsolace_sys::solClient_rxMsgCallback_returnCode_SOLCLIENT_CALLBACK_OK
+        }
+    
+        unsafe extern "C" fn info_receive_callback(
+            _opaque_session_p: rsolace_sys::solClient_opaqueSession_pt,
+            event_info_p: rsolace_sys::solClient_session_eventCallbackInfo_pt,
+            _user_p: *mut std::ffi::c_void,
+        ) {
+            let event_info = *event_info_p;
+            let res = rsolace_sys::solClient_session_eventToString(event_info.sessionEvent);
+            println!(
+                "event: {}, event code: {}, info: {}",
+                CStr::from_ptr(res).to_str().unwrap(),
+                event_info.responseCode,
+                CStr::from_ptr(event_info.info_p).to_str().unwrap(),
+            );
+        }
+
         self.session_func_info = Some(rsolace_sys::solClient_session_createFuncInfo_t {
             rxMsgInfo: rsolace_sys::solClient_session_createRxMsgCallbackFuncInfo_t {
                 callback_p: Some(message_receive_callback),
@@ -154,6 +164,7 @@ impl SolClient {
             rsolace_sys::solClient_session_disconnect(self.session_p);
         }
     }
+
 }
 
 impl Drop for SolClient {
