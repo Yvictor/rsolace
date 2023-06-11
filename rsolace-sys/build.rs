@@ -5,9 +5,10 @@ use std::path::PathBuf;
 
 fn main() {
     println!("cargo:rustc-link-search=native=solclient-7.25.0.10/lib");
+    println!("cargo:rustc-link-search=native=rsolace-sys/solclient-7.25.0.10/lib");
     // println!("cargo:rustc-link-search=solclient-7.25.0.10/include/solclient");
     println!("cargo:rustc-link-lib=static=solclient");
-    println!("cargo:rustc-link-lib=dylib=solclient");
+    // println!("cargo:rustc-link-lib=dylib=solclient");
     // println!("cargo:rerun-if-changed=solclient-7.25.0.10/include/solclient/solClient.h");
     let bindings = bindgen::Builder::default()
         // The input header we would like to generate

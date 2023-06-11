@@ -1,4 +1,5 @@
-use rsolace::solclient::{SolClient, SolClientLogLevel};
+use rsolace::solclient::{SolClient};
+use rsolace::types::{SolClientLogLevel};
 
 fn main() {
     let solclient = SolClient::new(SolClientLogLevel::Notice);
