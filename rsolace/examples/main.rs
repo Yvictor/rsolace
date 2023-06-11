@@ -1,10 +1,15 @@
 use rsolace::solclient::SolClient;
-use rsolace::types::SolClientLogLevel;
+use rsolace::types::{SolClientLogLevel, SolClientSubscribeFlags};
+use tracing_subscriber;
 
 fn main() {
+    tracing_subscriber::fmt::init();
     let solclient = SolClient::new(SolClientLogLevel::Notice);
     match solclient {
         Ok(mut solclient) => {
+            solclient.set_rx_event_callback(|event| {
+                tracing::info!("{:?}", event);
+            });
             let r = solclient.connect(
                 "218.32.76.102:80",
                 "sinopac",
@@ -14,6 +19,10 @@ fn main() {
                 None,
                 None,
             );
+            // solclient.set_rx_msg_callback(func)
+            solclient.subscribe_ext("TIC/v1/test1", SolClientSubscribeFlags::RequestConfirm);
+            solclient.subscribe_ext("TIC/v1/test2", SolClientSubscribeFlags::RequestConfirm);
+
             println!("connect: {}", r);
         }
         Err(e) => {
@@ -38,4 +47,5 @@ fn main() {
             println!("error: {}", e)
         }
     }
+    std::thread::sleep(std::time::Duration::from_secs(5));
 }
