@@ -1,6 +1,7 @@
 use super::solevent::SolEvent;
 use super::solmsg::SolMsg;
 use super::types::{SolClientLogLevel, SolClientReturnCode, SolClientSubscribeFlags};
+use super::utils::ConvertToCString;
 use enum_primitive::FromPrimitive;
 use failure::{bail, Error};
 use rsolace_sys;
@@ -8,7 +9,6 @@ use std::ffi::{c_void, CString};
 use std::option::Option;
 use std::ptr::{null, null_mut};
 // TODO fn pointer to struct
-
 
 #[derive(Debug)]
 pub struct SessionProps {
@@ -34,7 +34,7 @@ pub struct SessionProps {
 }
 
 impl SessionProps {
-    pub fn to_c(&self) -> [*const i8; 11] {
+    pub fn to_c(&self) -> [*const i8; 37] {
         let session_props = [
             rsolace_sys::SOLCLIENT_SESSION_PROP_HOST.as_ptr() as *const i8,
             self.host.as_ptr() as *const i8,
@@ -46,44 +46,125 @@ impl SessionProps {
             self.password.as_ptr() as *const i8,
             rsolace_sys::SOLCLIENT_SESSION_PROP_COMPRESSION_LEVEL.as_ptr() as *const i8,
             self.compression_level.as_ptr() as *const i8,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_CLIENT_NAME.as_ptr() as *const i8,
+            self.client_name.as_ptr() as *const i8,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_CONNECT_TIMEOUT_MS.as_ptr() as *const i8,
+            self.connect_timeout.as_ptr() as *const i8,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_TCP_NODELAY.as_ptr() as *const i8,
+            self.tcp_nodelay.as_ptr() as *const i8,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_GENERATE_RCV_TIMESTAMPS.as_ptr() as *const i8,
+            self.generate_rcv_timestamps.as_ptr() as *const i8,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_GENERATE_SEND_TIMESTAMPS.as_ptr() as *const i8,
+            self.generate_send_timestamps.as_ptr() as *const i8,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_GENERATE_SENDER_ID.as_ptr() as *const i8,
+            self.generate_sender_id.as_ptr() as *const i8,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_GENERATE_SEQUENCE_NUMBER.as_ptr() as *const i8,
+            self.generate_sequence_number.as_ptr() as *const i8,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_CONNECT_RETRIES.as_ptr() as *const i8,
+            self.connect_retries.as_ptr() as *const i8,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_RECONNECT_RETRIES.as_ptr() as *const i8,
+            self.reconnect_retries.as_ptr() as *const i8,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_RECONNECT_RETRY_WAIT_MS.as_ptr() as *const i8,
+            self.reconnect_retry_wait_ms.as_ptr() as *const i8,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_REAPPLY_SUBSCRIPTIONS.as_ptr() as *const i8,
+            self.reapply_subscriptions.as_ptr() as *const i8,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_KEEP_ALIVE_INT_MS.as_ptr() as *const i8,
+            self.keep_alive_int_ms.as_ptr() as *const i8,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_KEEP_ALIVE_LIMIT.as_ptr() as *const i8,
+            self.keep_alive_limit.as_ptr() as *const i8,
             null(),
         ];
         session_props
     }
 
     pub fn username(mut self, username: &str) -> Self {
-        self.username = CString::new(username).unwrap();
+        self.username = username.to_cstring();
         self
     }
 
     pub fn password(mut self, password: &str) -> Self {
-        self.password = CString::new(password).unwrap();
+        self.password = password.to_cstring();
         self
     }
 
     pub fn host(mut self, host: &str) -> Self {
-        self.host = CString::new(host).unwrap();
+        self.host = host.to_cstring();
         self
     }
 
     pub fn vpn(mut self, vpn: &str) -> Self {
-        self.vpn = CString::new(vpn).unwrap();
+        self.vpn = vpn.to_cstring();
         self
     }
 
     pub fn compression_level(mut self, compression_level: u32) -> Self {
         assert!(compression_level < 10);
-        self.compression_level = CString::new(format!("{}", compression_level)).unwrap();
+        self.compression_level = compression_level.to_cstring();
         self
     }
 
-    pub fn connect_timeout(mut self, timeout: u32) ->  Self {
-        self.connect_timeout = CString::new(format!("{}", timeout)).unwrap();
+    pub fn connect_timeout(mut self, timeout: u32) -> Self {
+        self.connect_timeout = timeout.to_cstring();
         self
     }
 
     pub fn tcp_nodelay(mut self, enable: bool) -> Self {
-        self.tcp_nodelay = CString::new("1").unwrap();
+        self.tcp_nodelay = enable.to_cstring();
+        self
+    }
+
+    pub fn client_name(mut self, client_name: &str) -> Self {
+        self.client_name = client_name.to_cstring();
+        self
+    }
+
+    pub fn keep_alive_int_ms(mut self, keep_alive_int_ms: u32) -> Self {
+        self.keep_alive_int_ms = keep_alive_int_ms.to_cstring();
+        self
+    }
+
+    pub fn keep_alive_limit(mut self, keep_alive_limit: u32) -> Self {
+        self.keep_alive_limit = keep_alive_limit.to_cstring();
+        self
+    }
+
+    pub fn generate_rcv_timestamps(mut self, generate_rcv_timestamps: bool) -> Self {
+        self.generate_rcv_timestamps = generate_rcv_timestamps.to_cstring();
+        self
+    }
+
+    pub fn generate_send_timestamps(mut self, generate_send_timestamps: bool) -> Self {
+        self.generate_send_timestamps = generate_send_timestamps.to_cstring();
+        self
+    }
+
+    pub fn generate_sender_id(mut self, generate_sender_id: bool) -> Self {
+        self.generate_sender_id = generate_sender_id.to_cstring();
+        self
+    }
+
+    pub fn generate_sequence_number(mut self, generate_sequence_number: bool) -> Self {
+        self.generate_sequence_number = generate_sequence_number.to_cstring();
+        self
+    }
+
+    pub fn connect_retries(mut self, connect_retries: u32) -> Self {
+        self.connect_retries = connect_retries.to_cstring();
+        self
+    }
+
+    pub fn reconnect_retries(mut self, reconnect_retries: u32) -> Self {
+        self.reconnect_retries = reconnect_retries.to_cstring();
+        self
+    }
+
+    pub fn reconnect_retry_wait_ms(mut self, reconnect_retry_wait_ms: u32) -> Self {
+        self.reconnect_retry_wait_ms = reconnect_retry_wait_ms.to_cstring();
+        self
+    }
+
+    pub fn reapply_subscriptions(mut self, reapply_subscriptions: bool) -> Self {
+        self.reapply_subscriptions = reapply_subscriptions.to_cstring();
         self
     }
 }
@@ -91,24 +172,24 @@ impl SessionProps {
 impl std::default::Default for SessionProps {
     fn default() -> Self {
         Self {
-            username: CString::new("").unwrap(),
-            password: CString::new("").unwrap(),
-            host: CString::new("").unwrap(),
-            vpn: CString::new("").unwrap(),
-            client_name: CString::new("").unwrap(),
-            connect_timeout: CString::new("30000").unwrap(),
-            tcp_nodelay: CString::new("1").unwrap(),
-            keep_alive_int_ms: CString::new("3000").unwrap(),
-            keep_alive_limit: CString::new("3").unwrap(),
-            compression_level: CString::new("0").unwrap(),
-            generate_rcv_timestamps: CString::new("0").unwrap(),
-            generate_send_timestamps: CString::new("0").unwrap(),
-            generate_sender_id: CString::new("0").unwrap(),
-            generate_sequence_number: CString::new("0").unwrap(),
-            connect_retries: CString::new("0").unwrap(),
-            reconnect_retries: CString::new("0").unwrap(),
-            reconnect_retry_wait_ms: CString::new("3000").unwrap(),
-            reapply_subscriptions: CString::new("0").unwrap(),
+            username: "".to_cstring(),
+            password: "".to_cstring(),
+            host: "".to_cstring(),
+            vpn: "".to_cstring(),
+            client_name: "".to_cstring(),
+            connect_timeout: 30000.to_cstring(),
+            tcp_nodelay: true.to_cstring(),
+            keep_alive_int_ms: 3000.to_cstring(),
+            keep_alive_limit: 3.to_cstring(),
+            compression_level: 0.to_cstring(),
+            generate_rcv_timestamps: false.to_cstring(),
+            generate_send_timestamps: false.to_cstring(),
+            generate_sender_id: false.to_cstring(),
+            generate_sequence_number: false.to_cstring(),
+            connect_retries: 0.to_cstring(),
+            reconnect_retries: 0.to_cstring(),
+            reconnect_retry_wait_ms: 3000.to_cstring(),
+            reapply_subscriptions: false.to_cstring(),
         }
     }
 }
@@ -166,8 +247,8 @@ impl SolClient {
     pub fn connect(&mut self, props: SessionProps) -> bool {
         let mut session_props = props.to_c();
         let c = unsafe { std::ffi::CStr::from_ptr(session_props[9]).to_str().unwrap() };
-        let uname = unsafe { std::ffi::CStr::from_ptr(session_props[5]).to_str(). unwrap() };
-        tracing::debug!("cstr: {:?}, {:?}",props.compression_level, c);
+        let uname = unsafe { std::ffi::CStr::from_ptr(session_props[5]).to_str().unwrap() };
+        tracing::debug!("cstr: {:?}, {:?}", props.compression_level, c);
         tracing::debug!("username cstr: {:?}, {:?}", props.username, uname);
         let session_props_ptr: *mut *const i8 = session_props.as_mut_ptr();
 
