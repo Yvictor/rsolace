@@ -33,14 +33,12 @@ fn main() {
     // println!("cargo:rustc-link-search=native=rsolace-sys/solclient-7.25.0.10/lib");
     // println!("cargo:rustc-link-search=solclient-7.25.0.10/include/solclient");
     let os = std::env::consts::OS;
-    if os == "linux" {
-        println!("cargo:rustc-link-lib=static=solclient");
-    } else if  os == "macos" {        
-        // println!("cargo:rustc-link-lib=static=ssl");
-        // println!("cargo:rustc-link-lib=static=crypto");
-        println!("cargo:rustc-link-lib=dylib=solclient");
+    if  os == "macos" {        
+        println!("cargo:rustc-link-lib=dylib=gssapi_krb5");
+        println!("cargo:rustc-link-lib=dylib=ssl");
+        println!("cargo:rustc-link-lib=dylib=crypto");
     }
-
+    println!("cargo:rustc-link-lib=static=solclient");
     // println!("cargo:rerun-if-changed=solclient-7.25.0.10/include/solclient/solClient.h");
     let bindings = bindgen::Builder::default()
         // The input header we would like to generate
