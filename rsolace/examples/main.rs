@@ -19,7 +19,7 @@ fn main() {
                 .password("shioaji111")
                 .reapply_subscriptions(true)
                 .connect_retries(1)
-                .connect_timeout(3000)
+                .connect_timeout_ms(3000)
                 .compression_level(5);
 
             let r = solclient.connect(props);

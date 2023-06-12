@@ -17,7 +17,7 @@ pub struct SessionProps {
     host: CString,
     vpn: CString,
     client_name: CString,
-    connect_timeout: CString,
+    connect_timeout_ms: CString,
     tcp_nodelay: CString,
     keep_alive_int_ms: CString,
     keep_alive_limit: CString,
@@ -49,7 +49,7 @@ impl SessionProps {
             rsolace_sys::SOLCLIENT_SESSION_PROP_CLIENT_NAME.as_ptr() as *const i8,
             self.client_name.as_ptr() as *const i8,
             rsolace_sys::SOLCLIENT_SESSION_PROP_CONNECT_TIMEOUT_MS.as_ptr() as *const i8,
-            self.connect_timeout.as_ptr() as *const i8,
+            self.connect_timeout_ms.as_ptr() as *const i8,
             rsolace_sys::SOLCLIENT_SESSION_PROP_TCP_NODELAY.as_ptr() as *const i8,
             self.tcp_nodelay.as_ptr() as *const i8,
             rsolace_sys::SOLCLIENT_SESSION_PROP_GENERATE_RCV_TIMESTAMPS.as_ptr() as *const i8,
@@ -103,8 +103,8 @@ impl SessionProps {
         self
     }
 
-    pub fn connect_timeout(mut self, timeout: u32) -> Self {
-        self.connect_timeout = timeout.to_cstring();
+    pub fn connect_timeout_ms(mut self, timeout: u32) -> Self {
+        self.connect_timeout_ms = timeout.to_cstring();
         self
     }
 
@@ -177,7 +177,7 @@ impl std::default::Default for SessionProps {
             host: "".to_cstring(),
             vpn: "".to_cstring(),
             client_name: "".to_cstring(),
-            connect_timeout: 30000.to_cstring(),
+            connect_timeout_ms: 30000.to_cstring(),
             tcp_nodelay: true.to_cstring(),
             keep_alive_int_ms: 3000.to_cstring(),
             keep_alive_limit: 3.to_cstring(),
