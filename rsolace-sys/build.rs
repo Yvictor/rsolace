@@ -3,18 +3,50 @@ extern crate bindgen;
 use std::path::PathBuf;
 // use bindgen::CargoCallbacks;
 
+#[cfg(target_os = "windows")]
+const SOLCLIENT_GZ_PATH: &str = "solclient_Win_vs2015_7.25.0.10.tar.gz";
+
+#[cfg(target_os = "macos")]
+const SOLCLIENT_GZ_PATH: &str = "solclient_Darwin-universal2_opt_7.25.0.10.tar.gz";
+
+#[cfg(target_os = "linux")]
+const SOLCLIENT_GZ_PATH: &str = "solclient_Linux26-x86_64_opt_7.25.0.10.tar.gz";
+
 fn main() {
+    let solclient_path = std::path::Path::new("../solclient-7.25.0.10");
+    if !solclient_path.exists() {
+        std::fs::create_dir(solclient_path.parent().unwrap()).unwrap();
+    }
+    if !solclient_path.join("lib").exists() {
+        std::process::Command::new("tar")
+            .args([
+                "-zxvf",
+                SOLCLIENT_GZ_PATH,
+                "-C",
+                "solclient-7.25.0.10",
+                "--strip-components=1",
+            ])
+            .output()
+            .expect("decompress lib error");
+    }
     println!("cargo:rustc-link-search=native=solclient-7.25.0.10/lib");
-    println!("cargo:rustc-link-search=native=rsolace-sys/solclient-7.25.0.10/lib");
+    // println!("cargo:rustc-link-search=native=rsolace-sys/solclient-7.25.0.10/lib");
     // println!("cargo:rustc-link-search=solclient-7.25.0.10/include/solclient");
-    println!("cargo:rustc-link-lib=static=solclient");
-    // println!("cargo:rustc-link-lib=dylib=solclient");
+    let os = std::env::consts::OS;
+    if os == "linux" {
+        println!("cargo:rustc-link-lib=static=solclient");
+    } else if  os == "macos" {        
+        // println!("cargo:rustc-link-lib=static=ssl");
+        // println!("cargo:rustc-link-lib=static=crypto");
+        println!("cargo:rustc-link-lib=dylib=solclient");
+    }
+
     // println!("cargo:rerun-if-changed=solclient-7.25.0.10/include/solclient/solClient.h");
     let bindings = bindgen::Builder::default()
         // The input header we would like to generate
         // bindings for.
         .header("wrapper.h")
-        .clang_arg("-Isolclient-7.25.0.10/include")
+        .clang_arg("-I../solclient-7.25.0.10/include")
         .allowlist_function("^solClient_.*")
         .allowlist_var("^SOLCLIENT_.*")
         // .dynamic_library_name("solclient")
@@ -36,5 +68,4 @@ fn main() {
         .expect("Couldn't write bindings!");
 
     // cc::Build::new().include("solclient-7.25.0.10/include");
-    
 }
