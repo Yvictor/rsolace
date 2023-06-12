@@ -7,8 +7,111 @@ use rsolace_sys;
 use std::ffi::{c_void, CString};
 use std::option::Option;
 use std::ptr::{null, null_mut};
-
 // TODO fn pointer to struct
+
+
+#[derive(Debug)]
+pub struct SessionProps {
+    username: CString,
+    password: CString,
+    host: CString,
+    vpn: CString,
+    client_name: CString,
+    connect_timeout: CString,
+    tcp_nodelay: CString,
+    keep_alive_int_ms: CString,
+    keep_alive_limit: CString,
+    // buffer_size: u32,
+    compression_level: CString,
+    generate_rcv_timestamps: CString,
+    generate_send_timestamps: CString,
+    generate_sender_id: CString,
+    generate_sequence_number: CString,
+    connect_retries: CString,
+    reconnect_retries: CString,
+    reconnect_retry_wait_ms: CString,
+    reapply_subscriptions: CString,
+}
+
+impl SessionProps {
+    pub fn to_c(&self) -> [*const i8; 11] {
+        let session_props = [
+            rsolace_sys::SOLCLIENT_SESSION_PROP_HOST.as_ptr() as *const i8,
+            self.host.as_ptr() as *const i8,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_VPN_NAME.as_ptr() as *const i8,
+            self.vpn.as_ptr() as *const i8,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_USERNAME.as_ptr() as *const i8,
+            self.username.as_ptr() as *const i8,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_PASSWORD.as_ptr() as *const i8,
+            self.password.as_ptr() as *const i8,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_COMPRESSION_LEVEL.as_ptr() as *const i8,
+            self.compression_level.as_ptr() as *const i8,
+            null(),
+        ];
+        session_props
+    }
+
+    pub fn username(mut self, username: &str) -> Self {
+        self.username = CString::new(username).unwrap();
+        self
+    }
+
+    pub fn password(mut self, password: &str) -> Self {
+        self.password = CString::new(password).unwrap();
+        self
+    }
+
+    pub fn host(mut self, host: &str) -> Self {
+        self.host = CString::new(host).unwrap();
+        self
+    }
+
+    pub fn vpn(mut self, vpn: &str) -> Self {
+        self.vpn = CString::new(vpn).unwrap();
+        self
+    }
+
+    pub fn compression_level(mut self, compression_level: u32) -> Self {
+        assert!(compression_level < 10);
+        self.compression_level = CString::new(format!("{}", compression_level)).unwrap();
+        self
+    }
+
+    pub fn connect_timeout(mut self, timeout: u32) ->  Self {
+        self.connect_timeout = CString::new(format!("{}", timeout)).unwrap();
+        self
+    }
+
+    pub fn tcp_nodelay(mut self, enable: bool) -> Self {
+        self.tcp_nodelay = CString::new("1").unwrap();
+        self
+    }
+}
+
+impl std::default::Default for SessionProps {
+    fn default() -> Self {
+        Self {
+            username: CString::new("").unwrap(),
+            password: CString::new("").unwrap(),
+            host: CString::new("").unwrap(),
+            vpn: CString::new("").unwrap(),
+            client_name: CString::new("").unwrap(),
+            connect_timeout: CString::new("30000").unwrap(),
+            tcp_nodelay: CString::new("1").unwrap(),
+            keep_alive_int_ms: CString::new("3000").unwrap(),
+            keep_alive_limit: CString::new("3").unwrap(),
+            compression_level: CString::new("0").unwrap(),
+            generate_rcv_timestamps: CString::new("0").unwrap(),
+            generate_send_timestamps: CString::new("0").unwrap(),
+            generate_sender_id: CString::new("0").unwrap(),
+            generate_sequence_number: CString::new("0").unwrap(),
+            connect_retries: CString::new("0").unwrap(),
+            reconnect_retries: CString::new("0").unwrap(),
+            reconnect_retry_wait_ms: CString::new("3000").unwrap(),
+            reapply_subscriptions: CString::new("0").unwrap(),
+        }
+    }
+}
 
 pub struct SolClient {
     context_p: rsolace_sys::solClient_opaqueContext_pt,
@@ -60,36 +163,14 @@ impl SolClient {
         }
     }
 
-    pub fn connect(
-        &mut self,
-        host: &str,
-        vpn: &str,
-        username: &str,
-        password: &str,
-        clientname: Option<&str>,
-        _connect_timeout: Option<u32>,
-        compression_level: Option<&str>,
-    ) -> bool {
-        let host = CString::new(host).unwrap();
-        let vpn = CString::new(vpn).unwrap();
-        let username = CString::new(username).unwrap();
-        let password = CString::new(password).unwrap();
-        let _clientname = CString::new(clientname.unwrap_or("")).unwrap();
-        let compression_level = CString::new(compression_level.unwrap_or("1")).unwrap();
-        let mut session_props = [
-            rsolace_sys::SOLCLIENT_SESSION_PROP_HOST.as_ptr() as *const i8,
-            host.as_ptr() as *const i8,
-            rsolace_sys::SOLCLIENT_SESSION_PROP_VPN_NAME.as_ptr() as *const i8,
-            vpn.as_ptr() as *const i8,
-            rsolace_sys::SOLCLIENT_SESSION_PROP_USERNAME.as_ptr() as *const i8,
-            username.as_ptr() as *const i8,
-            rsolace_sys::SOLCLIENT_SESSION_PROP_PASSWORD.as_ptr() as *const i8,
-            password.as_ptr() as *const i8,
-            rsolace_sys::SOLCLIENT_SESSION_PROP_COMPRESSION_LEVEL.as_ptr() as *const i8,
-            compression_level.as_ptr() as *const i8,
-            null(),
-        ];
+    pub fn connect(&mut self, props: SessionProps) -> bool {
+        let mut session_props = props.to_c();
+        let c = unsafe { std::ffi::CStr::from_ptr(session_props[9]).to_str().unwrap() };
+        let uname = unsafe { std::ffi::CStr::from_ptr(session_props[5]).to_str(). unwrap() };
+        tracing::debug!("cstr: {:?}, {:?}",props.compression_level, c);
+        tracing::debug!("username cstr: {:?}, {:?}", props.username, uname);
         let session_props_ptr: *mut *const i8 = session_props.as_mut_ptr();
+
         let user_p: *mut c_void = self as *mut _ as *mut c_void;
 
         unsafe extern "C" fn message_receive_callback(
@@ -214,7 +295,11 @@ impl SolClient {
         }
     }
 
-    pub fn unsubscribe_ext(&self, topic: &str, flag: SolClientSubscribeFlags) -> SolClientReturnCode {
+    pub fn unsubscribe_ext(
+        &self,
+        topic: &str,
+        flag: SolClientSubscribeFlags,
+    ) -> SolClientReturnCode {
         let topic = CString::new(topic).unwrap();
         unsafe {
             let rt_code = rsolace_sys::solClient_session_topicUnsubscribeExt(
