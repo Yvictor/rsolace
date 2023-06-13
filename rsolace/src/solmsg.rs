@@ -1,7 +1,6 @@
 use super::types::{SolClientDeliveryMode, SolClientDestType, SolClientReturnCode};
 use enum_primitive::FromPrimitive;
 use failure::{bail, Error};
-use rsolace_sys::{self, solClient_msg_alloc, solClient_msg_dump};
 use std::ffi::{c_void, CStr, CString};
 // use std::option::Option;
 use std::ptr::null_mut;
@@ -40,7 +39,7 @@ impl SolMsg {
     pub fn new() -> Result<SolMsg, Error> {
         let mut msg_p: rsolace_sys::solClient_opaqueMsg_pt = null_mut();
         unsafe {
-            let rt_code = solClient_msg_alloc(&mut msg_p);
+            let rt_code = rsolace_sys::solClient_msg_alloc(&mut msg_p);
             if rt_code != (SolClientReturnCode::Ok as i32) {
                 bail!("solmsg msg alloc faile");
             }
@@ -116,6 +115,123 @@ impl SolMsg {
         }
     }
 
+    pub fn set_reply_to(&mut self, dest: &Destination) -> SolClientReturnCode {
+        let dest_dest_cstr = CString::new(dest.dest.clone()).unwrap();
+        let mut dest_c = rsolace_sys::solClient_destination {
+            destType: dest.dest_type as i32,
+            dest: dest_dest_cstr.as_ptr(),
+        };
+        unsafe {
+            let rt_code = rsolace_sys::solClient_msg_setReplyTo(
+                self.msg_p,
+                (&mut dest_c) as *mut rsolace_sys::solClient_destination,
+                std::mem::size_of::<rsolace_sys::solClient_destination>(),
+            );
+            SolClientReturnCode::from_i32(rt_code).unwrap()
+        }
+    }
+
+    pub fn get_reply_to(&self) -> Result<Destination, Error> {
+        let mut dest_c = rsolace_sys::solClient_destination {
+            destType: SolClientDestType::Null as i32,
+            dest: null_mut(),
+        };
+        unsafe {
+            let rt_code = rsolace_sys::solClient_msg_getReplyTo(
+                self.msg_p,
+                (&mut dest_c) as *mut rsolace_sys::solClient_destination,
+                std::mem::size_of::<rsolace_sys::solClient_destination>(),
+            );
+            if rt_code != (SolClientReturnCode::Ok as i32) {
+                bail!("get delivery mode error");
+            }
+            Ok(Destination::from_ptr(dest_c))
+        }
+    }
+
+    pub fn set_as_reply(&mut self, is_reply: bool) -> SolClientReturnCode {
+        SolClientReturnCode::from_i32(unsafe {
+            rsolace_sys::solClient_msg_setAsReplyMsg(self.msg_p, is_reply as u8)
+        })
+        .unwrap()
+    }
+
+    pub fn is_reply(&self) -> bool {
+        unsafe { rsolace_sys::solClient_msg_isReplyMsg(self.msg_p) == 1 }
+    }
+
+    pub fn set_eliding_eligible(&mut self, elide: bool) -> SolClientReturnCode {
+        SolClientReturnCode::from_i32(unsafe {
+            rsolace_sys::solClient_msg_setElidingEligible(self.msg_p, elide as u8)
+        })
+        .unwrap()
+    }
+
+    pub fn is_eliding_eligible(&self) -> bool {
+        unsafe { rsolace_sys::solClient_msg_isElidingEligible(self.msg_p) == 1 }
+    }
+
+    pub fn is_p2p(&self) -> bool {
+        match self.get_topic() {
+            Ok(topic) => match &topic[..4] {
+                "#P2P" => true,
+                _ => false,
+            },
+            Err(_) => false,
+        }
+    }
+
+    pub fn set_correlation_id(&mut self, corr_id: &str) -> SolClientReturnCode {
+        let corr_id_c = CString::new(corr_id).unwrap();
+        SolClientReturnCode::from_i32(unsafe {
+            rsolace_sys::solClient_msg_setCorrelationId(self.msg_p, corr_id_c.as_ptr())
+        })
+        .unwrap()
+    }
+
+    pub fn get_correlation_id(&self) -> Result<String, Error> {
+        unsafe {
+            let mut corr_id: *const std::os::raw::c_char = null_mut();
+            let rt_code = rsolace_sys::solClient_msg_getCorrelationId(self.msg_p, &mut corr_id);
+            if rt_code != (SolClientReturnCode::Ok as i32) {
+                bail!("get corr error");
+            }
+            match CStr::from_ptr(corr_id).to_str() {
+                Ok(corr_id) => Ok(corr_id.to_string()),
+                Err(_) => {
+                    bail!("Utf8Error");
+                }
+            }
+        }
+    }
+
+    pub fn set_class_of_service(&mut self, cos: u32) -> SolClientReturnCode {
+        SolClientReturnCode::from_i32(unsafe {
+            rsolace_sys::solClient_msg_setClassOfService(self.msg_p, cos - 1)
+        })
+        .unwrap()
+    }
+
+    pub fn get_class_of_service(&self) -> Result<u32, Error> {
+        let mut cos = 0;
+        let rt_code = unsafe { rsolace_sys::solClient_msg_getClassOfService(self.msg_p, &mut cos) };
+        if rt_code != SolClientReturnCode::Ok as i32 {
+            bail!("get msg cos faile");
+        }
+        Ok(cos + 1)
+    }
+
+    pub fn set_delivery_to_one(&mut self, dto: bool) -> SolClientReturnCode {
+        SolClientReturnCode::from_i32(unsafe {
+            rsolace_sys::solClient_msg_setDeliverToOne(self.msg_p, dto as u8)
+        })
+        .unwrap()
+    }
+
+    pub fn is_delivery_to_one(&mut self) -> bool {
+        unsafe { rsolace_sys::solClient_msg_isDeliverToOne(self.msg_p) == 1 }
+    }
+
     pub fn set_topic(&mut self, topic: &str) -> SolClientReturnCode {
         let dest = Destination::new(SolClientDestType::Topic, topic);
         self.set_destination(&dest)
@@ -168,7 +284,7 @@ impl SolMsg {
     pub fn dump(&self, display_only: bool) -> Option<String> {
         if display_only {
             unsafe {
-                solClient_msg_dump(self.msg_p, null_mut(), 0);
+                rsolace_sys::solClient_msg_dump(self.msg_p, null_mut(), 0);
                 None
             }
         } else {
@@ -193,9 +309,11 @@ mod tests {
 
     use super::{Destination, SolMsg};
 
-    #[test]
-    fn new_solmsg() {
-        SolMsg::new().unwrap();
+    use rstest::{fixture, rstest};
+
+    #[fixture]
+    pub fn solmsg() -> SolMsg {
+        SolMsg::new().unwrap()
     }
 
     #[test]
@@ -204,27 +322,20 @@ mod tests {
         assert!(res.is_err())
     }
 
-    #[test]
-    fn solmsg_delivery_mode_workable() {
-        let mut solmsg = SolMsg::new().unwrap();
+    #[rstest]
+    #[case(SolClientDeliveryMode::Direct)]
+    #[case(SolClientDeliveryMode::Persistent)]
+    #[case(SolClientDeliveryMode::NonPersistent)]
+    fn solmsg_delivery_mode_workable(mut solmsg: SolMsg, #[case] mode: SolClientDeliveryMode) {
         assert_eq!(
             solmsg.get_delivery_mode().unwrap(),
             SolClientDeliveryMode::Direct
         );
-        let mode = SolClientDeliveryMode::Direct;
-        solmsg.set_delivery_mode(mode);
-        assert_eq!(solmsg.get_delivery_mode().unwrap(), mode);
-
-        let mode = SolClientDeliveryMode::Persistent;
-        solmsg.set_delivery_mode(mode);
-        assert_eq!(solmsg.get_delivery_mode().unwrap(), mode);
-
-        let mode = SolClientDeliveryMode::NonPersistent;
         solmsg.set_delivery_mode(mode);
         assert_eq!(solmsg.get_delivery_mode().unwrap(), mode);
     }
 
-    #[test]
+    #[rstest]
     fn solmsg_dest_workable() {
         let mut solmsg = SolMsg::new().unwrap();
         let dest = Destination::new(SolClientDestType::Topic, "TIC/v1/test");
@@ -236,25 +347,78 @@ mod tests {
         assert_eq!(solmsg.get_destination().unwrap(), dest);
     }
 
-    #[test]
-    fn solmsg_topic_workable() {
-        let mut solmsg = SolMsg::new().unwrap();
+    #[rstest]
+    fn solmsg_topic_workable(mut solmsg: SolMsg) {
         let topic = "TIC/v1/test";
         solmsg.set_topic(topic);
         assert_eq!(solmsg.get_topic().unwrap(), topic);
     }
 
-    #[test]
-    fn solmsg_set_binary_attachment() {
+    #[rstest]
+    #[case(true)]
+    #[case(false)]
+    fn solmsg_reply_workable(mut solmsg: SolMsg, #[case] is_reply: bool) {
+        solmsg.set_as_reply(is_reply);
+        assert_eq!(solmsg.is_reply(), is_reply);
+    }
+
+    #[rstest]
+    fn solmsg_reply_to_workable(mut solmsg: SolMsg) {
+        let dest = Destination::new(SolClientDestType::Topic, "TIC/v1/test");
+        solmsg.set_reply_to(&dest);
+        assert_eq!(solmsg.get_reply_to().unwrap(), dest);
+    }
+
+    #[rstest]
+    #[case(true)]
+    #[case(false)]
+    fn solmsg_elide_workable(mut solmsg: SolMsg, #[case] elide: bool) {
+        solmsg.set_eliding_eligible(elide);
+        assert_eq!(solmsg.is_eliding_eligible(), elide);
+    }
+
+    #[rstest]
+    #[case("#P2P/abc", true)]
+    #[case("TIC/v1/test1", false)]
+    fn solmsg_is_p2p_workable(mut solmsg: SolMsg, #[case] topic: &str, #[case] is_p2p: bool) {
+        solmsg.set_topic(topic);
+        assert_eq!(solmsg.is_p2p(), is_p2p);
+    }
+
+    #[rstest]
+    fn solmsg_corr_id_workable(mut solmsg: SolMsg) {
+        let corr_id = "R1";
+        solmsg.set_correlation_id(corr_id);
+        assert_eq!(solmsg.get_correlation_id().unwrap(), corr_id);
+    }
+
+    #[rstest]
+    #[case(true)]
+    #[case(false)]
+    fn solmsg_delivery_to_one_workable(#[case] dto: bool) {
         let mut solmsg = SolMsg::new().unwrap();
+        solmsg.set_delivery_to_one(dto);
+        assert_eq!(solmsg.is_delivery_to_one(), dto);
+    }
+
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    fn solmsg_cos_workable(mut solmsg: SolMsg, #[case] cos: u32) {
+        solmsg.set_class_of_service(cos);
+        assert_eq!(solmsg.get_class_of_service().unwrap(), cos);
+    }
+
+    #[rstest]
+    fn solmsg_set_binary_attachment(mut solmsg: SolMsg) {
         let data = vec![0, 1, 2, 3, 4];
         let rt_code = solmsg.set_binary_attachment(&data);
         assert_eq!(rt_code, SolClientReturnCode::Ok)
     }
 
-    #[test]
-    fn solmsg_get_binary_attachment() {
-        let mut solmsg = SolMsg::new().unwrap();
+    #[rstest]
+    fn solmsg_get_binary_attachment(mut solmsg: SolMsg) {
         let data = vec![0, 1, 2, 3, 4];
         solmsg.set_binary_attachment(&data);
         // assert_eq!(rt_code, SolClientReturnCode::Ok)

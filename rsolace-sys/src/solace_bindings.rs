@@ -488,6 +488,60 @@ pub const SOLCLIENT_MSGDUMP_BRIEF: u32 = 0;
 pub const SOLCLIENT_MSGDUMP_FULL: u32 = 1;
 pub const SOLCLIENT_REPLICATION_GROUP_MESSAGE_ID_SIZE: u32 = 16;
 pub const SOLCLIENT_REPLICATION_GROUP_MESSAGE_ID_STRING_LENGTH: u32 = 41;
+pub const SOLCLIENT_CONTEXT_PROP_MAX_APP_TIMERS: &[u8; 23usize] = b"CONTEXT_MAX_APP_TIMERS\0";
+pub const SOLCLIENT_CONTEXT_PROP_MAX_FLOWS: &[u8; 18usize] = b"CONTEXT_MAX_FLOWS\0";
+pub const SOLCLIENT_CONTEXT_PROP_MAX_APP_FDS: &[u8; 20usize] = b"CONTEXT_MAX_APP_FDS\0";
+pub const SOLCLIENT_CONTEXT_PROP_MAX_SESSIONS: &[u8; 21usize] = b"CONTEXT_MAX_SESSIONS\0";
+pub const SOLCLIENT_CONTEXT_PROP_MULTI_THREAD: &[u8; 21usize] = b"CONTEXT_MULTI_THREAD\0";
+pub const SOLCLIENT_CONTEXT_PROP_DEFAULT_MAX_APP_TIMERS: &[u8; 2usize] = b"0\0";
+pub const SOLCLIENT_CONTEXT_PROP_DEFAULT_MAX_FLOWS: &[u8; 4usize] = b"100\0";
+pub const SOLCLIENT_CONTEXT_PROP_DEFAULT_MAX_APP_FDS: &[u8; 2usize] = b"0\0";
+pub const SOLCLIENT_CONTEXT_PROP_DEFAULT_MAX_SESSIONS: &[u8; 2usize] = b"1\0";
+pub const SOLCLIENT_CONTEXT_PROP_DEFAULT_MULTI_THREAD: &[u8; 2usize] = b"1\0";
+pub const SOLCLIENT_SESSION_PROP_SSL_PROTOCOL: &[u8; 21usize] = b"SESSION_SSL_PROTOCOL\0";
+pub const SOLCLIENT_SESSION_DEFAULT_PROP_SSL_PROTOCOL: &[u8; 28usize] =
+    b"TLSv1.2,TLSv1.1,TLSv1,SSLv3\0";
+pub const SOLCLIENT_SESSION_PROP_MAX_FLOWS: &[u8; 18usize] = b"SESSION_MAX_FLOWS\0";
+pub const SOLCLIENT_SESSION_PROP_DEFAULT_MAX_FLOWS: &[u8; 4usize] = b"100\0";
+pub const SOLCLIENT_SESSION_PROP_SUBSCRIBER_LOCAL_PRIORITY: &[u8; 34usize] =
+    b"SESSION_SUBSCRIBER_LOCAL_PRIORITY\0";
+pub const SOLCLIENT_SESSION_PROP_SUBSCRIBER_NETWORK_PRIORITY: &[u8; 36usize] =
+    b"SESSION_SUBSCRIBER_NETWORK_PRIORITY\0";
+pub const SOLCLIENT_SESSION_PROP_MAX_HOST_LEN: u32 = 128;
+pub const SOLCLIENT_MAX_SELECTOR_SIZE: u32 = 1023;
+pub const SOLCLIENT_BUFINFO_MAX_DURABLE_QUEUENAME_SIZE: u32 = 200;
+pub const SOLCLIENT_BUFINFO_MAX_CONSUMER_ID_SIZE: u32 = 65536;
+pub const SOLCLIENT_SEND_FLAGS_COS_1: u32 = 0;
+pub const SOLCLIENT_SEND_FLAGS_COS_2: u32 = 1;
+pub const SOLCLIENT_SEND_FLAGS_COS_3: u32 = 2;
+pub const SOLCLIENT_SEND_FLAGS_COS_MASK: u32 = 3;
+pub const SOLCLIENT_SEND_FLAGS_DIRECT: u32 = 0;
+pub const SOLCLIENT_SEND_FLAGS_PERSISTENT: u32 = 16;
+pub const SOLCLIENT_SEND_FLAGS_NONPERSISTENT: u32 = 32;
+pub const SOLCLIENT_SEND_FLAGS_ASSURED: u32 = 48;
+pub const SOLCLIENT_SEND_FLAGS_DELIVER_TO_ONE: u32 = 64;
+pub const SOLCLIENT_SEND_FLAGS_TMP_DESTINATION: u32 = 128;
+pub const SOLCLIENT_SEND_FLAGS_DMQ_ELIGIBLE: u32 = 256;
+pub const SOLCLIENT_SEND_FLAGS_ELIDING_ELIGIBLE: u32 = 512;
+pub const SOLCLIENT_SEND_FLAGS_ACK_IMMEDIATELY: u32 = 1024;
+pub const SOLCLIENT_SEND_FLAGS_VALID_MASK: u32 = 1023;
+pub const SOLCLIENT_RX_FLAGS_DISCARD_INDICATOR_MASK: u32 = 1;
+pub const SOLCLIENT_RX_FLAGS_AD_REDELIVERED_MASK: u32 = 2;
+pub const SOLCLIENT_RX_FLAGS_DELIVERY_MODE_PERSISTENT: u32 = 4;
+pub const SOLCLIENT_RX_FLAGS_DELIVERY_MODE_NONPERSISTENT: u32 = 8;
+pub const SOLCLIENT_RX_FLAGS_DELIVERY_MODE_DIRECT: u32 = 0;
+pub const SOLCLIENT_RX_FLAGS_COS_MASK: u32 = 48;
+pub const SOLCLIENT_RX_FLAGS_COS_SHIFT: u32 = 4;
+pub const SOLCLIENT_SESSION_CAPABILITY_SUPPORTS_XPE_SUBSCRIPTIONS: &[u8; 46usize] =
+    b"SESSION_CAPABILITY_SUPPORTS_XPE_SUBSCRIPTIONS\0";
+pub const SOLCLIENT_SESSION_CAPABILITY_CUT_THROUGH: &[u8; 31usize] =
+    b"SESSION_CAPABILITY_CUT_THROUGH\0";
+pub const SOLCLIENT_SUBSCRIBE_FLAGS_ISFILTER: u32 = 1;
+pub const SOLCLIENT_SUBSCRIBE_FLAGS_RX_ALL_DELIVER_TO_ONE: u32 = 4;
+pub const SOLCLIENT_FLOW_PROP_FORWARDING_MODE_STORE_AND_FORWARD: &[u8; 2usize] = b"1\0";
+pub const SOLCLIENT_FLOW_PROP_FORWARDING_MODE_CUT_THROUGH: &[u8; 2usize] = b"2\0";
+pub const SOLCLIENT_FLOW_PROP_FORWARDING_MODE: &[u8; 21usize] = b"FLOW_FORWARDING_MODE\0";
+pub const SOLCLIENT_FLOW_PROP_DEFAULT_FORWARDING_MODE: &[u8; 2usize] = b"1\0";
 pub type wint_t = ::std::os::raw::c_uint;
 pub type solClient_uint8_t = ::std::os::raw::c_uchar;
 pub type solClient_int8_t = ::std::os::raw::c_schar;
@@ -3956,5 +4010,183 @@ extern "C" {
         msg_p: solClient_opaqueMsg_pt,
         rgmid_p: solClient_replicationGroupMessageId_pt,
         size: usize,
+    ) -> solClient_returnCode_t;
+}
+pub type solClient_bufInfo_ap = solClient_bufInfo_pt;
+pub type solClient_sendFlags_t = solClient_uint32_t;
+pub const solClient_bufInfo_index_SOLCLIENT_BUFINFO_BINARY_ATTACHMENT_PART:
+    solClient_bufInfo_index = 0;
+pub const solClient_bufInfo_index_SOLCLIENT_BUFINFO_TOPIC_PART: solClient_bufInfo_index = 1;
+pub const solClient_bufInfo_index_SOLCLIENT_BUFINFO_CONSUMER_ID_PART: solClient_bufInfo_index = 2;
+pub const solClient_bufInfo_index_SOLCLIENT_BUFINFO_USER_DATA_PART: solClient_bufInfo_index = 3;
+pub const solClient_bufInfo_index_SOLCLIENT_BUFINFO_XML_PART: solClient_bufInfo_index = 4;
+pub const solClient_bufInfo_index_SOLCLIENT_BUFINFO_CORRELATION_TAG_PART: solClient_bufInfo_index =
+    5;
+pub const solClient_bufInfo_index_SOLCLIENT_BUFINFO_QUEUENAME_PART: solClient_bufInfo_index = 6;
+pub const solClient_bufInfo_index_SOLCLIENT_BUFINFO_USER_PROPERTY_PART: solClient_bufInfo_index = 7;
+pub const solClient_bufInfo_index_SOLCLIENT_BUFINFO_MAX_PARTS: solClient_bufInfo_index = 8;
+pub type solClient_bufInfo_index = ::std::os::raw::c_uint;
+pub use self::solClient_bufInfo_index as solClient_bufInfo_index_t;
+extern "C" {
+    pub fn solClient_session_send(
+        opaqueSession_p: solClient_opaqueSession_pt,
+        bufInfo_p: solClient_bufInfo_ap,
+        bufInfoSize: solClient_uint32_t,
+        flags: solClient_sendFlags_t,
+    ) -> solClient_returnCode_t;
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct solClient_sendMultiple {
+    pub flags: solClient_sendFlags_t,
+    pub topic: solClient_bufInfo_t,
+    pub binaryAttachment: solClient_bufInfo_t,
+}
+#[test]
+fn bindgen_test_layout_solClient_sendMultiple() {
+    const UNINIT: ::std::mem::MaybeUninit<solClient_sendMultiple> =
+        ::std::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::std::mem::size_of::<solClient_sendMultiple>(),
+        40usize,
+        concat!("Size of: ", stringify!(solClient_sendMultiple))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<solClient_sendMultiple>(),
+        8usize,
+        concat!("Alignment of ", stringify!(solClient_sendMultiple))
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(solClient_sendMultiple),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).topic) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(solClient_sendMultiple),
+            "::",
+            stringify!(topic)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).binaryAttachment) as usize - ptr as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(solClient_sendMultiple),
+            "::",
+            stringify!(binaryAttachment)
+        )
+    );
+}
+pub type solClient_sendMultiple_pt = *mut solClient_sendMultiple;
+extern "C" {
+    pub fn solClient_session_sendMultiple(
+        opaqueSession_p: solClient_opaqueSession_pt,
+        msgArray_p: solClient_sendMultiple_pt,
+        numberOfMessages: solClient_uint32_t,
+        sendMultipleStructSize: usize,
+    ) -> solClient_returnCode_t;
+}
+pub type solClient_consumerId_t = solClient_uint32_t;
+pub const SOLCLIENT_NULL_CONSUMER_ID: solClient_consumerId_t = 4294967295;
+extern "C" {
+    pub fn solClient_bufInfo_getConsumerIdCount(
+        bufInfo_p: solClient_bufInfo_ap,
+        consumerIdCount_p: *mut solClient_uint32_t,
+    ) -> solClient_returnCode_t;
+}
+extern "C" {
+    pub fn solClient_bufInfo_getConsumerId(
+        bufInfo_p: solClient_bufInfo_ap,
+        consumerIdIndex: solClient_uint32_t,
+        consumerId_p: *mut solClient_consumerId_t,
+    ) -> solClient_returnCode_t;
+}
+extern "C" {
+    pub fn solClient_session_xmlSubscribe(
+        opaqueSession_p: solClient_opaqueSession_pt,
+        xmlSubscription_p: *const ::std::os::raw::c_char,
+        namespaces: *mut *mut ::std::os::raw::c_char,
+        flags: solClient_subscribeFlags_t,
+        consumerId: solClient_consumerId_t,
+    ) -> solClient_returnCode_t;
+}
+extern "C" {
+    pub fn solClient_session_xmlUnsubscribe(
+        opaqueSession_p: solClient_opaqueSession_pt,
+        xmlSubscription_p: *const ::std::os::raw::c_char,
+        namespaces: *mut *mut ::std::os::raw::c_char,
+        flags: solClient_subscribeFlags_t,
+        consumerId: solClient_consumerId_t,
+    ) -> solClient_returnCode_t;
+}
+extern "C" {
+    pub fn solClient_session_controlMessageReceiveFd(
+        opaqueSession_p: solClient_opaqueSession_pt,
+        fd_p: *mut solClient_fd_t,
+        callback_p: *mut solClient_context_fdCallbackFunc_t,
+        user_p: *mut *mut ::std::os::raw::c_void,
+    ) -> solClient_returnCode_t;
+}
+extern "C" {
+    pub fn solClient_msg_getConsumerIdCount(
+        msg_p: solClient_opaqueMsg_pt,
+        consumerIdCount_p: *mut solClient_uint32_t,
+    ) -> solClient_returnCode_t;
+}
+extern "C" {
+    pub fn solClient_msg_getConsumerId(
+        msg_p: solClient_opaqueMsg_pt,
+        consumerIdIndex: solClient_uint32_t,
+        consumerId_p: *mut solClient_consumerId_t,
+    ) -> solClient_returnCode_t;
+}
+extern "C" {
+    pub fn solClient_msg_extractDatablock(
+        msg_p: solClient_opaqueMsg_pt,
+        bufIndex: solClient_bufInfo_index_t,
+        datab_p: *mut solClient_opaqueDatablock_pt,
+        bufInfo_p: solClient_bufInfo_pt,
+    ) -> solClient_returnCode_t;
+}
+extern "C" {
+    pub fn solClient_datablock_free(
+        datab_p: *mut solClient_opaqueDatablock_pt,
+    ) -> solClient_returnCode_t;
+}
+extern "C" {
+    pub fn solClient_msg_setDeliverToOne(
+        msg_p: solClient_opaqueMsg_pt,
+        val: solClient_bool_t,
+    ) -> solClient_returnCode_t;
+}
+extern "C" {
+    pub fn solClient_msg_isDeliverToOne(msg_p: solClient_opaqueMsg_pt) -> solClient_bool_t;
+}
+extern "C" {
+    pub fn solClient_createQueueNetworkName(
+        queueName_p: *mut ::std::os::raw::c_char,
+        virtualName_p: *mut ::std::os::raw::c_char,
+        opaqueSession_p: solClient_opaqueSession_pt,
+        durability: solClient_bool_t,
+        queueNetName_p: *mut ::std::os::raw::c_char,
+        length: usize,
+    ) -> solClient_returnCode_t;
+}
+extern "C" {
+    pub fn solClient_session_createTemporaryQueueName(
+        opaqueSession_p: solClient_opaqueSession_pt,
+        queue_p: *mut ::std::os::raw::c_char,
+        length: usize,
     ) -> solClient_returnCode_t;
 }
