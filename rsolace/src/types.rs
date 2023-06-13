@@ -73,3 +73,25 @@ enum_from_primitive! {
         RequestConfirm = rsolace_sys::SOLCLIENT_SUBSCRIBE_FLAGS_REQUEST_CONFIRM,
     }
 }
+
+enum_from_primitive! {
+    #[derive(Debug, Copy, Clone, PartialEq)]
+    #[repr(u32)]
+    pub enum SolClientDeliveryMode {
+        Direct = rsolace_sys::SOLCLIENT_DELIVERY_MODE_DIRECT,
+        Persistent = rsolace_sys::SOLCLIENT_DELIVERY_MODE_PERSISTENT,
+        NonPersistent = rsolace_sys::SOLCLIENT_DELIVERY_MODE_NONPERSISTENT,
+    }
+}
+
+enum_from_primitive! {
+    #[derive(Debug, Copy, Clone, PartialEq)]
+    #[repr(i32)]
+    pub enum SolClientDestType {
+        Null = rsolace_sys::solClient_destinationType_SOLCLIENT_NULL_DESTINATION,
+        Topic = rsolace_sys::solClient_destinationType_SOLCLIENT_TOPIC_DESTINATION,
+        Queue = rsolace_sys::solClient_destinationType_SOLCLIENT_QUEUE_DESTINATION,
+        TopicTemp = rsolace_sys::solClient_destinationType_SOLCLIENT_TOPIC_TEMP_DESTINATION,
+        QueueTemp = rsolace_sys::solClient_destinationType_SOLCLIENT_QUEUE_TEMP_DESTINATION,
+    }
+}
