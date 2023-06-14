@@ -4,10 +4,13 @@ use super::types::{SolClientLogLevel, SolClientReturnCode, SolClientSubscribeFla
 use super::utils::ConvertToCString;
 use enum_primitive::FromPrimitive;
 use failure::{bail, Error};
-use rsolace_sys;
+use rsolace_sys::{
+    self, solClient_session_send, solClient_session_sendMsg, solClient_session_sendMultipleMsg,
+};
 use std::ffi::{c_void, CString};
 use std::option::Option;
 use std::ptr::{null, null_mut};
+use tracing_subscriber::fmt::format;
 // TODO fn pointer to struct
 
 #[derive(Debug)]
@@ -273,8 +276,7 @@ impl SolClient {
                     tracing::error!("msg from ptr error: {}", e);
                 }
             }
-            println!("rec msg");
-            rsolace_sys::solClient_rxMsgCallback_returnCode_SOLCLIENT_CALLBACK_OK
+            rsolace_sys::solClient_rxMsgCallback_returnCode_SOLCLIENT_CALLBACK_TAKE_MSG
         }
 
         unsafe extern "C" fn event_receive_callback(
@@ -389,6 +391,50 @@ impl SolClient {
                 topic.as_ptr(),
             );
             SolClientReturnCode::from_i32(rt_code).unwrap()
+        }
+    }
+
+    pub fn send_msg(&self, msg: SolMsg) -> SolClientReturnCode {
+        let rt_code = unsafe { solClient_session_sendMsg(self.session_p, msg.get_ptr()) };
+        SolClientReturnCode::from_i32(rt_code).unwrap()
+    }
+
+    pub fn send_multiple_msg(&self, msgs: &[SolMsg]) -> SolClientReturnCode {
+        let mut arr_msg: [rsolace_sys::solClient_opaqueMsg_pt;
+            rsolace_sys::SOLCLIENT_SESSION_SEND_MULTIPLE_LIMIT as usize] =
+            [null_mut(); rsolace_sys::SOLCLIENT_SESSION_SEND_MULTIPLE_LIMIT as usize];
+        let mut num = 0;
+        for (i, msg) in msgs.iter().enumerate() {
+            arr_msg[i] = msg.get_ptr();
+        }
+        let rt_code = unsafe {
+            solClient_session_sendMultipleMsg(
+                self.session_p,
+                &mut arr_msg as *mut *mut c_void,
+                msgs.len() as u32,
+                &mut num,
+            )
+        };
+        SolClientReturnCode::from_i32(rt_code).unwrap()
+    }
+
+    pub fn send_request(&self, msg: SolMsg, timeout: u32) -> Result<SolMsg, Error> {
+        let mut reply_msg_pt: rsolace_sys::solClient_opaqueMsg_pt = null_mut();
+        let rt_code = unsafe {
+            rsolace_sys::solClient_session_sendRequest(
+                self.session_p,
+                msg.get_ptr(),
+                &mut reply_msg_pt,
+                timeout,
+            )
+        };
+        let rt_code = SolClientReturnCode::from_i32(rt_code).unwrap();
+        match rt_code {
+            SolClientReturnCode::Ok => Ok(SolMsg::from_ptr(reply_msg_pt).unwrap()),
+            SolClientReturnCode::InProgress => Ok(SolMsg::new().unwrap()),
+            _ => {
+                bail!(format!("request error: {:?}", rt_code));
+            }
         }
     }
 }

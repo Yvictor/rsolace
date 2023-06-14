@@ -1,4 +1,5 @@
 use rsolace::solclient::{SessionProps, SolClient};
+use rsolace::solmsg::SolMsg;
 use rsolace::types::{SolClientLogLevel, SolClientSubscribeFlags};
 use tracing_subscriber;
 
@@ -11,6 +12,18 @@ fn main() {
         Ok(mut solclient) => {
             solclient.set_rx_event_callback(|event| {
                 tracing::info!("{:?}", event);
+            });
+            solclient.set_rx_msg_callback(|msg| {
+                tracing::info!(
+                    "{} {} {:?}",
+                    msg.get_topic().unwrap(),
+                    msg.get_sender_time()
+                        .unwrap_or(chrono::prelude::Utc::now())
+                        //.format("%Y-%m-%d %H:%M:%S%.3f")
+                        // .to_string(),
+                        .to_rfc3339(),
+                    msg.get_binary_attachment().unwrap()
+                );
             });
             let props = SessionProps::default()
                 .host("218.32.76.102:80")
@@ -26,9 +39,29 @@ fn main() {
             tracing::info!("connect: {}", r);
 
             // solclient.set_rx_msg_callback(func)
-            solclient.subscribe_ext("TIC/v1/test1", SolClientSubscribeFlags::RequestConfirm);
-            solclient.subscribe_ext("TIC/v1/test2", SolClientSubscribeFlags::RequestConfirm);
+            solclient.subscribe_ext(
+                "TIC/v1/STK/*/TSE/2230",
+                SolClientSubscribeFlags::RequestConfirm,
+            );
+            solclient.subscribe_ext(
+                "QUO/v1/STK/*/TSE/2330",
+                SolClientSubscribeFlags::RequestConfirm,
+            );
             std::thread::sleep(std::time::Duration::from_secs(5));
+            let mut msg = SolMsg::new().unwrap();
+            msg.set_topic("api/v1/test");
+            let rt = solclient.send_msg(msg);
+            tracing::info!("send msg: {:?}", rt);
+            let mut msgs = vec![SolMsg::new().unwrap(), SolMsg::new().unwrap()];
+            for (i, msg) in msgs.iter_mut().enumerate() {
+                msg.set_topic(format!("api/v1/test/{}", i).as_str());
+            }
+            let rt = solclient.send_multiple_msg(&msgs);
+            tracing::info!("send multiple msg: {:?}", rt);
+            let mut msg = SolMsg::new().unwrap();
+            msg.set_topic("api/v1/test");
+            let res = solclient.send_request(msg, 0);
+            tracing::info!("send request msg: {:?}", res);
             tracing::info!("done");
         }
         Err(e) => {

@@ -3,6 +3,7 @@ use enum_primitive::FromPrimitive;
 use failure::{bail, Error};
 use std::ffi::{c_void, CStr, CString};
 // use std::option::Option;
+use chrono::DateTime;
 use std::ptr::null_mut;
 
 pub struct SolMsg {
@@ -60,6 +61,10 @@ impl SolMsg {
             }
         }
         Ok(SolMsg { msg_p: msg_p })
+    }
+
+    pub fn get_ptr(&self) -> rsolace_sys::solClient_opaqueMsg_pt {
+        self.msg_p
     }
 
     pub fn set_delivery_mode(&mut self, mode: SolClientDeliveryMode) -> SolClientReturnCode {
@@ -247,6 +252,20 @@ impl SolMsg {
         }
     }
 
+    pub fn get_sender_time(&self) -> Result<DateTime<chrono::Utc>, Error> {
+        let mut ts = 0;
+        let rt_code = unsafe { rsolace_sys::solClient_msg_getSenderTimestamp(self.msg_p, &mut ts) };
+        if rt_code != SolClientReturnCode::Ok as i32 {
+            bail!("get msg sender time faile");
+        }
+        match chrono::naive::NaiveDateTime::from_timestamp_millis(ts) {
+            Some(naive_datetime) => Ok(DateTime::from_utc(naive_datetime, chrono::Utc)),
+            None => {
+                bail!("get msg sender time faile");
+            }
+        }
+    }
+
     pub fn set_binary_attachment(&mut self, data: &[u8]) -> SolClientReturnCode {
         unsafe {
             let rt_code = rsolace_sys::solClient_msg_setBinaryAttachment(
@@ -290,6 +309,12 @@ impl SolMsg {
         } else {
             None
         }
+    }
+}
+
+impl std::fmt::Debug for SolMsg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SolMsg").field("ptr", &self.msg_p).finish()
     }
 }
 
