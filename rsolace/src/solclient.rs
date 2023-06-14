@@ -202,8 +202,8 @@ pub struct SolClient {
     // context_func_info: rsolace_sys::solClient_context_createFuncInfo_t,
     session_p: rsolace_sys::solClient_opaqueSession_pt,
     session_func_info: Option<rsolace_sys::solClient_session_createFuncInfo_t>,
-    rx_msg_callback: Option<fn(SolMsg)>,
-    rx_event_callback: Option<fn(SolEvent)>,
+    rx_msg_callback: Option<fn(&mut Self, SolMsg)>,
+    rx_event_callback: Option<fn(&mut Self, SolEvent)>,
 }
 
 impl SolClient {
@@ -267,7 +267,7 @@ impl SolClient {
                 Ok(msg) => {
                     let self_ref: &mut SolClient = &mut *(user_p as *mut SolClient);
                     if let Some(cb) = self_ref.rx_msg_callback {
-                        cb(msg);
+                        cb(self_ref, msg);
                     } else {
                         msg.dump(true);
                     }
@@ -289,7 +289,7 @@ impl SolClient {
                 Ok(event) => {
                     let self_ref: &mut SolClient = &mut *(user_p as *mut SolClient);
                     if let Some(cb) = self_ref.rx_event_callback {
-                        cb(event)
+                        cb(self_ref, event)
                     } else {
                         tracing::info!(
                             "event: {}, response code: {}, info: {}",
@@ -340,11 +340,11 @@ impl SolClient {
         }
     }
 
-    pub fn set_rx_msg_callback(&mut self, func: fn(SolMsg)) {
+    pub fn set_rx_msg_callback(&mut self, func: fn(&mut Self, SolMsg)) {
         self.rx_msg_callback = Some(func);
     }
 
-    pub fn set_rx_event_callback(&mut self, func: fn(SolEvent)) {
+    pub fn set_rx_event_callback(&mut self, func: fn(&mut Self, SolEvent)) {
         self.rx_event_callback = Some(func);
     }
 
@@ -436,6 +436,17 @@ impl SolClient {
                 bail!(format!("request error: {:?}", rt_code));
             }
         }
+    }
+
+    pub fn send_reply(&self, rx_msg: SolMsg, reply_msg: SolMsg) -> SolClientReturnCode {
+        let rt_code = unsafe {
+            rsolace_sys::solClient_session_sendReply(
+                self.session_p,
+                rx_msg.get_ptr(),
+                reply_msg.get_ptr(),
+            )
+        };
+        SolClientReturnCode::from_i32(rt_code).unwrap()
     }
 }
 

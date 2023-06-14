@@ -19,8 +19,6 @@ fn main() {
                     msg.get_topic().unwrap(),
                     msg.get_sender_time()
                         .unwrap_or(chrono::prelude::Utc::now())
-                        //.format("%Y-%m-%d %H:%M:%S%.3f")
-                        // .to_string(),
                         .to_rfc3339(),
                     msg.get_binary_attachment().unwrap()
                 );
@@ -58,33 +56,10 @@ fn main() {
             }
             let rt = solclient.send_multiple_msg(&msgs);
             tracing::info!("send multiple msg: {:?}", rt);
-            let mut msg = SolMsg::new().unwrap();
-            msg.set_topic("api/v1/test");
-            let res = solclient.send_request(msg, 0);
-            tracing::info!("send request msg: {:?}", res);
             tracing::info!("done");
         }
         Err(e) => {
             println!("error: {}", e)
         }
     }
-    // let solclient2 = SolClient::new(SolClientLogLevel::Notice);
-    // match solclient2 {
-    //     Ok(mut solclient) => {
-    //         let r = solclient.connect(
-    //             "218.32.76.102:80",
-    //             "sinopac",
-    //             "shioaji",
-    //             "shioaji111",
-    //             Some("c2"),
-    //             None,
-    //             None,
-    //         );
-    //         println!("connect: {}", r);
-    //     }
-    //     Err(e) => {
-    //         println!("error: {}", e)
-    //     }
-    // }
-    // std::thread::sleep(std::time::Duration::from_secs(5));
 }

@@ -252,6 +252,21 @@ impl SolMsg {
         }
     }
 
+    pub fn set_reply_topic(&mut self, topic: &str) -> SolClientReturnCode {
+        let dest = Destination::new(SolClientDestType::Topic, topic);
+        self.set_reply_to(&dest)
+    }
+
+    pub fn get_reply_topic(&self) -> Result<String, Error> {
+        let dest = self.get_reply_to();
+        match dest {
+            Ok(dest) => Ok(dest.dest),
+            Err(e) => {
+                bail!(e)
+            }
+        }
+    }
+
     pub fn get_sender_time(&self) -> Result<DateTime<chrono::Utc>, Error> {
         let mut ts = 0;
         let rt_code = unsafe { rsolace_sys::solClient_msg_getSenderTimestamp(self.msg_p, &mut ts) };
@@ -307,14 +322,30 @@ impl SolMsg {
                 None
             }
         } else {
-            None
+            let mut buffer_p: [std::os::raw::c_char; 4096] = [0; 4096];
+            // let buffer_p: *mut std::os::raw::c_char = null_mut();
+            unsafe {
+                rsolace_sys::solClient_msg_dump(
+                    self.msg_p,
+                    &mut buffer_p as *mut std::os::raw::c_char,
+                    4096,
+                );
+                let dump = CStr::from_ptr(&buffer_p as *const i8).to_str().unwrap();
+                Some(dump.to_string())
+            }
         }
     }
 }
 
 impl std::fmt::Debug for SolMsg {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SolMsg").field("ptr", &self.msg_p).finish()
+        // f.debug_struct("SolMsg").field("ptr", &self.msg_p).finish();
+        write!(
+            f,
+            "SolMsg {:?} \n{}",
+            &self.msg_p,
+            &self.dump(false).unwrap_or("".to_string())
+        )
     }
 }
 
