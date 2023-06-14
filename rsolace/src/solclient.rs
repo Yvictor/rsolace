@@ -4,13 +4,9 @@ use super::types::{SolClientLogLevel, SolClientReturnCode, SolClientSubscribeFla
 use super::utils::ConvertToCString;
 use enum_primitive::FromPrimitive;
 use failure::{bail, Error};
-use rsolace_sys::{
-    self, solClient_session_send, solClient_session_sendMsg, solClient_session_sendMultipleMsg,
-};
 use std::ffi::{c_void, CString};
 use std::option::Option;
 use std::ptr::{null, null_mut};
-use tracing_subscriber::fmt::format;
 // TODO fn pointer to struct
 
 #[derive(Debug)]
@@ -395,7 +391,8 @@ impl SolClient {
     }
 
     pub fn send_msg(&self, msg: SolMsg) -> SolClientReturnCode {
-        let rt_code = unsafe { solClient_session_sendMsg(self.session_p, msg.get_ptr()) };
+        let rt_code =
+            unsafe { rsolace_sys::solClient_session_sendMsg(self.session_p, msg.get_ptr()) };
         SolClientReturnCode::from_i32(rt_code).unwrap()
     }
 
@@ -408,7 +405,7 @@ impl SolClient {
             arr_msg[i] = msg.get_ptr();
         }
         let rt_code = unsafe {
-            solClient_session_sendMultipleMsg(
+            rsolace_sys::solClient_session_sendMultipleMsg(
                 self.session_p,
                 &mut arr_msg as *mut *mut c_void,
                 msgs.len() as u32,
