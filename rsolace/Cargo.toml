@@ -2,14 +2,19 @@
 name = "rsolace"
 version = "0.1.0"
 edition = "2021"
-
+description = "Solace bindings for the Rust"
+keywords = ["solace"]
+readme = "README.md"
+license = "GPL-3.0-only"
+categories = ["api-bindings"]
+repository = "https://github.com/Yvictor/rsolace"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 chrono = "0.4.26"
 enum_primitive = "0.1.1"
 failure = "0.1.8"
-rsolace-sys = { path = "../rsolace-sys" }
+rsolace-sys = { version = "0.1.4", path = "../rsolace-sys" }
 tracing = "0.1"
 tracing-subscriber = "0.3"
 
