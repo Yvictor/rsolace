@@ -50,7 +50,7 @@ fn main() {
             std::thread::sleep(std::time::Duration::from_secs(5));
             let mut msg = SolMsg::new().unwrap();
             msg.set_topic("api/v1/test");
-            let rt = solclient.send_msg(msg);
+            let rt = solclient.send_msg(&msg);
             tracing::info!("send msg: {:?}", rt);
             let mut msgs = vec![SolMsg::new().unwrap(), SolMsg::new().unwrap()];
             for (i, msg) in msgs.iter_mut().enumerate() {
@@ -60,7 +60,7 @@ fn main() {
             tracing::info!("send multiple msg: {:?}", rt);
             let mut msg = SolMsg::new().unwrap();
             msg.set_topic("api/v1/test");
-            let res = solclient.send_request(msg, 0);
+            let res = solclient.send_request(&msg, 0);
             tracing::info!("send request msg: {:?}", res);
             tracing::info!("done");
         }

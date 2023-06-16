@@ -22,7 +22,7 @@ fn main() {
                 let mut reply_msg = SolMsg::new().unwrap();
                 reply_msg.set_reply_topic("api/v1/test");
                 // reply_msg.set_topic("api/v1/test");
-                let rt = solclient.send_reply(msg, reply_msg);
+                let rt = solclient.send_reply(&msg, &reply_msg);
                 tracing::info!("reply: {:?}", rt);
             });
             let props = SessionProps::default()

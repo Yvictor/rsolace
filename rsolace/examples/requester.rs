@@ -36,7 +36,7 @@ fn main() {
             let mut msg = SolMsg::new().unwrap();
             msg.set_topic("api/v1/test");
             msg.set_delivery_to_one(true);
-            let res = solclient.send_request(msg, 5000);
+            let res = solclient.send_request(&msg, 5000);
             tracing::info!("send request msg: {:?}", res);
             tracing::info!("done");
         }

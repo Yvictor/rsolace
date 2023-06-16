@@ -390,7 +390,7 @@ impl SolClient {
         }
     }
 
-    pub fn send_msg(&self, msg: SolMsg) -> SolClientReturnCode {
+    pub fn send_msg(&self, msg: &SolMsg) -> SolClientReturnCode {
         let rt_code =
             unsafe { rsolace_sys::solClient_session_sendMsg(self.session_p, msg.get_ptr()) };
         SolClientReturnCode::from_i32(rt_code).unwrap()
@@ -415,7 +415,7 @@ impl SolClient {
         SolClientReturnCode::from_i32(rt_code).unwrap()
     }
 
-    pub fn send_request(&self, msg: SolMsg, timeout: u32) -> Result<SolMsg, Error> {
+    pub fn send_request(&self, msg: &SolMsg, timeout: u32) -> Result<SolMsg, Error> {
         let mut reply_msg_pt: rsolace_sys::solClient_opaqueMsg_pt = null_mut();
         let rt_code = unsafe {
             rsolace_sys::solClient_session_sendRequest(
@@ -435,7 +435,7 @@ impl SolClient {
         }
     }
 
-    pub fn send_reply(&self, rx_msg: SolMsg, reply_msg: SolMsg) -> SolClientReturnCode {
+    pub fn send_reply(&self, rx_msg: &SolMsg, reply_msg: &SolMsg) -> SolClientReturnCode {
         let rt_code = unsafe {
             rsolace_sys::solClient_session_sendReply(
                 self.session_p,

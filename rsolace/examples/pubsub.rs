@@ -36,7 +36,6 @@ fn main() {
             let r = solclient.connect(props);
             tracing::info!("connect: {}", r);
 
-            // solclient.set_rx_msg_callback(func)
             solclient.subscribe_ext(
                 "TIC/v1/STK/*/TSE/2230",
                 SolClientSubscribeFlags::RequestConfirm,
@@ -48,7 +47,7 @@ fn main() {
             std::thread::sleep(std::time::Duration::from_secs(5));
             let mut msg = SolMsg::new().unwrap();
             msg.set_topic("api/v1/test");
-            let rt = solclient.send_msg(msg);
+            let rt = solclient.send_msg(&msg);
             tracing::info!("send msg: {:?}", rt);
             let mut msgs = vec![SolMsg::new().unwrap(), SolMsg::new().unwrap()];
             for (i, msg) in msgs.iter_mut().enumerate() {
