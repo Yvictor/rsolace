@@ -1,9 +1,9 @@
 use super::types::{SolClientDeliveryMode, SolClientDestType, SolClientReturnCode};
 use enum_primitive::FromPrimitive;
-use failure::{bail, Error};
 use std::ffi::{c_void, CStr, CString};
 // use std::option::Option;
 use chrono::DateTime;
+use snafu::prelude::*;
 use std::ptr::null_mut;
 
 pub struct SolMsg {
@@ -15,6 +15,27 @@ pub struct SolMsg {
 pub struct Destination {
     pub dest_type: SolClientDestType,
     pub dest: String,
+}
+
+#[derive(Debug, Snafu, PartialEq)]
+pub enum SolMsgError {
+    #[snafu(display("SolMsg alloc {msg_p:?} Error"))]
+    Alloc {
+        msg_p: rsolace_sys::solClient_opaqueMsg_pt,
+    },
+    #[snafu(display("SolMsg from invalid ptr {msg_p:?} Error"))]
+    FromInvalidPtr {
+        msg_p: rsolace_sys::solClient_opaqueMsg_pt,
+    },
+    #[snafu(display("SolMsg get {attr} Error"))]
+    GetAttr { attr: String },
+    #[snafu(display("SolMsg get {attr} empty Error"))]
+    GetAttrEmpty { attr: String },
+    #[snafu(display("SolMsg get {attr} {}", source))]
+    GetAttrUtf8Error {
+        source: std::str::Utf8Error,
+        attr: String,
+    },
 }
 
 // pub trait FromCptr {
@@ -37,13 +58,17 @@ impl Destination {
 }
 
 impl SolMsg {
-    pub fn new() -> Result<SolMsg, Error> {
+    pub fn new() -> Result<SolMsg, SolMsgError> {
         let mut msg_p: rsolace_sys::solClient_opaqueMsg_pt = null_mut();
         unsafe {
             let rt_code = rsolace_sys::solClient_msg_alloc(&mut msg_p);
-            if rt_code != (SolClientReturnCode::Ok as i32) {
-                bail!("solmsg msg alloc faile");
-            }
+            ensure!(
+                rt_code == (SolClientReturnCode::Ok as i32),
+                AllocSnafu { msg_p }
+            );
+            // if rt_code != (SolClientReturnCode::Ok as i32) {
+            //     return Err(SolMsgError::Alloc(msg_p));
+            // }
         }
         Ok(SolMsg {
             msg_p: msg_p,
@@ -51,14 +76,15 @@ impl SolMsg {
         })
     }
 
-    pub fn from_ptr(msg_p: rsolace_sys::solClient_opaqueMsg_pt) -> Result<SolMsg, Error> {
+    pub fn from_ptr(msg_p: rsolace_sys::solClient_opaqueMsg_pt) -> Result<SolMsg, SolMsgError> {
         // TODO how to check the ptr is valid
         let mut mode = 0;
         unsafe {
             let rt_code = rsolace_sys::solClient_msg_getDeliveryMode(msg_p, &mut mode);
-            if rt_code != (SolClientReturnCode::Ok as i32) {
-                bail!("not valid msg ptr");
-            }
+            ensure!(
+                rt_code == (SolClientReturnCode::Ok as i32),
+                FromInvalidPtrSnafu { msg_p }
+            );
         }
         Ok(SolMsg { msg_p: msg_p })
     }
@@ -74,13 +100,16 @@ impl SolMsg {
         }
     }
 
-    pub fn get_delivery_mode(&self) -> Result<SolClientDeliveryMode, Error> {
+    pub fn get_delivery_mode(&self) -> Result<SolClientDeliveryMode, SolMsgError> {
         let mut mode = 0;
         unsafe {
             let rt_code = rsolace_sys::solClient_msg_getDeliveryMode(self.msg_p, &mut mode);
-            if rt_code != (SolClientReturnCode::Ok as i32) {
-                bail!("get delivery mode error");
-            }
+            ensure!(
+                rt_code == (SolClientReturnCode::Ok as i32),
+                GetAttrSnafu {
+                    attr: "deliver_mode".to_string(),
+                }
+            );
             Ok(SolClientDeliveryMode::from_u32(mode).unwrap())
         }
     }
@@ -101,7 +130,7 @@ impl SolMsg {
         }
     }
 
-    pub fn get_destination(&self) -> Result<Destination, Error> {
+    pub fn get_destination(&self) -> Result<Destination, SolMsgError> {
         let mut dest_c = rsolace_sys::solClient_destination {
             destType: SolClientDestType::Null as i32,
             dest: null_mut(),
@@ -112,9 +141,12 @@ impl SolMsg {
                 (&mut dest_c) as *mut rsolace_sys::solClient_destination,
                 std::mem::size_of::<rsolace_sys::solClient_destination>(),
             );
-            if rt_code != (SolClientReturnCode::Ok as i32) {
-                bail!("get delivery mode error");
-            }
+            ensure!(
+                rt_code == (SolClientReturnCode::Ok as i32),
+                GetAttrSnafu {
+                    attr: "destination".to_string(),
+                }
+            );
             Ok(Destination::from_ptr(dest_c))
             // SolClientReturnCode::from_i32(rt_code).unwrap()
         }
@@ -136,7 +168,7 @@ impl SolMsg {
         }
     }
 
-    pub fn get_reply_to(&self) -> Result<Destination, Error> {
+    pub fn get_reply_to(&self) -> Result<Destination, SolMsgError> {
         let mut dest_c = rsolace_sys::solClient_destination {
             destType: SolClientDestType::Null as i32,
             dest: null_mut(),
@@ -147,9 +179,12 @@ impl SolMsg {
                 (&mut dest_c) as *mut rsolace_sys::solClient_destination,
                 std::mem::size_of::<rsolace_sys::solClient_destination>(),
             );
-            if rt_code != (SolClientReturnCode::Ok as i32) {
-                bail!("get delivery mode error");
-            }
+            ensure!(
+                rt_code == (SolClientReturnCode::Ok as i32),
+                GetAttrSnafu {
+                    attr: "reply_to".to_string(),
+                }
+            );
             Ok(Destination::from_ptr(dest_c))
         }
     }
@@ -194,19 +229,20 @@ impl SolMsg {
         .unwrap()
     }
 
-    pub fn get_correlation_id(&self) -> Result<String, Error> {
+    pub fn get_correlation_id(&self) -> Result<String, SolMsgError> {
         unsafe {
             let mut corr_id: *const std::os::raw::c_char = null_mut();
             let rt_code = rsolace_sys::solClient_msg_getCorrelationId(self.msg_p, &mut corr_id);
-            if rt_code != (SolClientReturnCode::Ok as i32) {
-                bail!("get corr error");
-            }
-            match CStr::from_ptr(corr_id).to_str() {
-                Ok(corr_id) => Ok(corr_id.to_string()),
-                Err(_) => {
-                    bail!("Utf8Error");
+            ensure!(
+                rt_code == (SolClientReturnCode::Ok as i32),
+                GetAttrSnafu {
+                    attr: "corrid".to_string()
                 }
-            }
+            );
+            let corr_id = CStr::from_ptr(corr_id)
+                .to_str()
+                .context(GetAttrUtf8Snafu { attr: "corrid" })?;
+            Ok(corr_id.to_string())
         }
     }
 
@@ -217,12 +253,17 @@ impl SolMsg {
         .unwrap()
     }
 
-    pub fn get_class_of_service(&self) -> Result<u32, Error> {
+    pub fn get_class_of_service(&self) -> Result<u32, SolMsgError> {
         let mut cos = 0;
         let rt_code = unsafe { rsolace_sys::solClient_msg_getClassOfService(self.msg_p, &mut cos) };
-        if rt_code != SolClientReturnCode::Ok as i32 {
-            bail!("get msg cos faile");
-        }
+
+        ensure!(
+            rt_code == (SolClientReturnCode::Ok as i32),
+            GetAttrSnafu {
+                attr: "class_of_service".to_string()
+            }
+        );
+
         Ok(cos + 1)
     }
 
@@ -242,14 +283,9 @@ impl SolMsg {
         self.set_destination(&dest)
     }
 
-    pub fn get_topic(&self) -> Result<String, Error> {
-        let dest = self.get_destination();
-        match dest {
-            Ok(dest) => Ok(dest.dest),
-            Err(e) => {
-                bail!(e)
-            }
-        }
+    pub fn get_topic(&self) -> Result<String, SolMsgError> {
+        let dest = self.get_destination()?;
+        Ok(dest.dest)
     }
 
     pub fn set_reply_topic(&mut self, topic: &str) -> SolClientReturnCode {
@@ -257,28 +293,25 @@ impl SolMsg {
         self.set_reply_to(&dest)
     }
 
-    pub fn get_reply_topic(&self) -> Result<String, Error> {
-        let dest = self.get_reply_to();
-        match dest {
-            Ok(dest) => Ok(dest.dest),
-            Err(e) => {
-                bail!(e)
-            }
-        }
+    pub fn get_reply_topic(&self) -> Result<String, SolMsgError> {
+        let dest = self.get_reply_to()?;
+        Ok(dest.dest)
     }
 
-    pub fn get_sender_time(&self) -> Result<DateTime<chrono::Utc>, Error> {
+    pub fn get_sender_time(&self) -> Result<DateTime<chrono::Utc>, SolMsgError> {
         let mut ts = 0;
         let rt_code = unsafe { rsolace_sys::solClient_msg_getSenderTimestamp(self.msg_p, &mut ts) };
-        if rt_code != SolClientReturnCode::Ok as i32 {
-            bail!("get msg sender time faile");
-        }
-        match chrono::naive::NaiveDateTime::from_timestamp_millis(ts) {
-            Some(naive_datetime) => Ok(DateTime::from_utc(naive_datetime, chrono::Utc)),
-            None => {
-                bail!("get msg sender time faile");
+        ensure!(
+            rt_code == SolClientReturnCode::Ok as i32,
+            GetAttrSnafu {
+                attr: "sender_time"
             }
-        }
+        );
+        let naive_datetime =
+            chrono::naive::NaiveDateTime::from_timestamp_millis(ts).context(GetAttrEmptySnafu {
+                attr: "sender_time",
+            })?;
+        Ok(DateTime::from_utc(naive_datetime, chrono::Utc))
     }
 
     pub fn set_binary_attachment(&mut self, data: &[u8]) -> SolClientReturnCode {
@@ -292,7 +325,7 @@ impl SolMsg {
         }
     }
 
-    pub fn get_binary_attachment(&self) -> Result<Vec<u8>, Error> {
+    pub fn get_binary_attachment(&self) -> Result<Vec<u8>, SolMsgError> {
         let mut data_ptr = null_mut();
         let mut data_len = 0;
         unsafe {
@@ -301,14 +334,19 @@ impl SolMsg {
                 &mut data_ptr,
                 &mut data_len,
             );
-            if rt_code != (SolClientReturnCode::Ok as i32) {
-                bail!("solmsg get binary attachment faile");
-            }
-
+            ensure!(
+                rt_code == (SolClientReturnCode::Ok as i32),
+                GetAttrEmptySnafu {
+                    attr: "binary_attachment"
+                }
+            );
+            ensure!(
+                data_len > 0,
+                GetAttrEmptySnafu {
+                    attr: "binary_attachment"
+                }
+            );
             // assert!(!data_ptr.is_null());
-            if data_len <= 0 {
-                bail!("solmsg get binary attachment empty");
-            }
             let v: Vec<u8> =
                 std::slice::from_raw_parts(data_ptr as *const u8, data_len as usize).to_vec();
             Ok(v)
@@ -351,6 +389,7 @@ impl std::fmt::Debug for SolMsg {
 
 impl Drop for SolMsg {
     fn drop(&mut self) {
+        // tracing::debug!("solmsg: {:?} drop call", self.msg_p);
         unsafe {
             rsolace_sys::solClient_msg_free(&mut self.msg_p);
         }
@@ -363,7 +402,7 @@ mod tests {
 
     use crate::types::{SolClientDeliveryMode, SolClientDestType, SolClientReturnCode};
 
-    use super::{Destination, SolMsg};
+    use super::{Destination, SolMsg, SolMsgError};
 
     use rstest::{fixture, rstest};
 
@@ -471,6 +510,22 @@ mod tests {
         let data = vec![0, 1, 2, 3, 4];
         let rt_code = solmsg.set_binary_attachment(&data);
         assert_eq!(rt_code, SolClientReturnCode::Ok)
+    }
+
+    #[rstest]
+    fn solmsg_get_binary_attachment_err(solmsg: SolMsg) {
+        let res = solmsg.get_binary_attachment();
+        assert!(res.is_err());
+        let err = res.unwrap_err();
+        println!("{}", err);
+        assert_eq!(
+            err,
+            SolMsgError::GetAttrEmpty {
+                attr: "binary_attachment".to_string()
+            }
+        );
+        // ensure!();
+        // assert_eq!(res, Err(SolMsgError::GetAttr("binary_attachment")));
     }
 
     #[rstest]
