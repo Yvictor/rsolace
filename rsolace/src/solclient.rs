@@ -1,13 +1,24 @@
 use super::solevent::SolEvent;
-use super::solmsg::SolMsg;
+use super::solmsg::{SolMsg, SolMsgError};
 use super::types::{SolClientLogLevel, SolClientReturnCode, SolClientSubscribeFlags};
 use super::utils::ConvertToCString;
 use enum_primitive::FromPrimitive;
-use failure::{bail, Error};
+use snafu::prelude::{ensure, Snafu};
+use snafu::ResultExt;
 use std::ffi::{c_void, CString};
 use std::option::Option;
 use std::ptr::{null, null_mut};
 // TODO fn pointer to struct
+
+#[derive(Debug, Snafu, PartialEq)]
+pub enum SolClientError {
+    #[snafu(display("SolClient context create Error"))]
+    ContextCreate,
+    #[snafu(display("SolClient send request {topic} Error"))]
+    SendRequest { topic: String },
+    #[snafu(display("SolClient inside {}", source))]
+    SolMsg { source: SolMsgError },
+}
 
 #[derive(Debug)]
 pub struct SessionProps {
@@ -203,7 +214,7 @@ pub struct SolClient {
 }
 
 impl SolClient {
-    pub fn new(log_level: SolClientLogLevel) -> Result<SolClient, Error> {
+    pub fn new(log_level: SolClientLogLevel) -> Result<SolClient, SolClientError> {
         let mut context_p: rsolace_sys::solClient_opaqueContext_pt = null_mut();
         unsafe {
             rsolace_sys::solClient_initialize(log_level as std::os::raw::c_uint, null_mut());
@@ -229,9 +240,11 @@ impl SolClient {
                 &mut context_func_info,
                 std::mem::size_of::<rsolace_sys::solClient_context_createFuncInfo>(),
             );
-            if rt_code != rsolace_sys::solClient_returnCode_SOLCLIENT_OK {
-                bail!("solcient error"); // error info
-            }
+            ensure!(
+                rt_code == rsolace_sys::solClient_returnCode_SOLCLIENT_OK,
+                ContextCreateSnafu
+            );
+
             Ok(SolClient {
                 context_p: context_p,
                 // context_func_info: context_func_info,
@@ -415,7 +428,7 @@ impl SolClient {
         SolClientReturnCode::from_i32(rt_code).unwrap()
     }
 
-    pub fn send_request(&self, msg: &SolMsg, timeout: u32) -> Result<SolMsg, Error> {
+    pub fn send_request(&self, msg: &SolMsg, timeout: u32) -> Result<SolMsg, SolClientError> {
         let mut reply_msg_pt: rsolace_sys::solClient_opaqueMsg_pt = null_mut();
         let rt_code = unsafe {
             rsolace_sys::solClient_session_sendRequest(
@@ -426,13 +439,15 @@ impl SolClient {
             )
         };
         let rt_code = SolClientReturnCode::from_i32(rt_code).unwrap();
-        match rt_code {
-            SolClientReturnCode::Ok => Ok(SolMsg::from_ptr(reply_msg_pt).unwrap()),
-            SolClientReturnCode::InProgress => Ok(SolMsg::new().unwrap()),
-            _ => {
-                bail!(format!("request error: {:?}", rt_code));
+        ensure!(
+            (timeout > 0 && rt_code == SolClientReturnCode::Ok)
+                || (timeout == 0 && rt_code == SolClientReturnCode::InProgress),
+            SendRequestSnafu {
+                topic: msg.get_topic().context(SolMsgSnafu)?
             }
-        }
+        );
+        // check reply msg when non block
+        Ok(SolMsg::from_ptr(reply_msg_pt).unwrap())
     }
 
     pub fn send_reply(&self, rx_msg: &SolMsg, reply_msg: &SolMsg) -> SolClientReturnCode {

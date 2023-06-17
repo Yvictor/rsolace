@@ -3,7 +3,8 @@ use enum_primitive::FromPrimitive;
 use std::ffi::{c_void, CStr, CString};
 // use std::option::Option;
 use chrono::DateTime;
-use snafu::prelude::*;
+use snafu::prelude::{ensure, Snafu};
+use snafu::{OptionExt, ResultExt};
 use std::ptr::null_mut;
 
 pub struct SolMsg {
