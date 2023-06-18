@@ -9,6 +9,7 @@ use std::ptr::null_mut;
 
 pub struct SolMsg {
     msg_p: rsolace_sys::solClient_opaqueMsg_pt,
+    user_prop_p: Option<rsolace_sys::solClient_opaqueContainer_pt>,
     // container_p: Option<rsolace_sys::solClient_opaqueContainer_pt>,
 }
 
@@ -37,6 +38,8 @@ pub enum SolMsgError {
         source: std::str::Utf8Error,
         attr: String,
     },
+    #[snafu(display("SolMsg without user prop"))]
+    UserPropNotExist,
 }
 
 // pub trait FromCptr {
@@ -73,6 +76,7 @@ impl SolMsg {
         }
         Ok(SolMsg {
             msg_p: msg_p,
+            user_prop_p: None,
             // container_p: None,
         })
     }
@@ -80,14 +84,26 @@ impl SolMsg {
     pub fn from_ptr(msg_p: rsolace_sys::solClient_opaqueMsg_pt) -> Result<SolMsg, SolMsgError> {
         // TODO how to check the ptr is valid
         let mut mode = 0;
-        unsafe {
-            let rt_code = rsolace_sys::solClient_msg_getDeliveryMode(msg_p, &mut mode);
-            ensure!(
-                rt_code == (SolClientReturnCode::Ok as i32),
-                FromInvalidPtrSnafu { msg_p }
-            );
+        let mut user_prop_p: rsolace_sys::solClient_opaqueContainer_pt = null_mut();
+        let rt_code = unsafe { rsolace_sys::solClient_msg_getDeliveryMode(msg_p, &mut mode) };
+        ensure!(
+            rt_code == (SolClientReturnCode::Ok as i32),
+            FromInvalidPtrSnafu { msg_p }
+        );
+        let rt_code =
+            unsafe { rsolace_sys::solClient_msg_getUserPropertyMap(msg_p, &mut user_prop_p) };
+        match SolClientReturnCode::from_i32(rt_code).unwrap() {
+            SolClientReturnCode::Ok => Ok(SolMsg {
+                msg_p: msg_p,
+                user_prop_p: Some(user_prop_p),
+            }),
+            _ => {
+                Ok(SolMsg {
+                    msg_p: msg_p,
+                    user_prop_p: None, //Some(user_prop_p)
+                })
+            }
         }
-        Ok(SolMsg { msg_p: msg_p })
     }
 
     pub fn get_ptr(&self) -> rsolace_sys::solClient_opaqueMsg_pt {
@@ -315,6 +331,66 @@ impl SolMsg {
         Ok(DateTime::from_utc(naive_datetime, chrono::Utc))
     }
 
+    pub fn get_user_prop(&self, key: &str) -> Result<String, SolMsgError> {
+        match self.user_prop_p {
+            Some(user_prop_p) => {
+                let key_c = CString::new(key).unwrap();
+                let mut value_c: *const std::os::raw::c_char = null_mut();
+                let rt_code = unsafe {
+                    rsolace_sys::solClient_container_getStringPtr(
+                        user_prop_p,
+                        &mut value_c,
+                        key_c.as_ptr(),
+                    )
+                };
+                ensure!(
+                    rt_code == SolClientReturnCode::Ok as i32,
+                    GetAttrSnafu { attr: key }
+                );
+                let value = unsafe { CStr::from_ptr(value_c) }
+                    .to_str()
+                    .context(GetAttrUtf8Snafu { attr: key })?;
+                Ok(value.to_string())
+                // rsolace_sys::solClient_container_getString(container_p, string, size, name)
+            }
+            None => Err(SolMsgError::UserPropNotExist),
+        }
+    }
+
+    pub fn set_user_prop(&mut self, key: &str, value: &str, map_size: u32) -> SolClientReturnCode {
+        let key_c = CString::new(key).unwrap();
+        let value_c = CString::new(value).unwrap();
+        match self.user_prop_p {
+            Some(use_prop_p) => unsafe {
+                let rt_code = rsolace_sys::solClient_container_addString(
+                    use_prop_p,
+                    value_c.as_ptr(),
+                    key_c.as_ptr(),
+                );
+                SolClientReturnCode::from_i32(rt_code).unwrap()
+            },
+            None => unsafe {
+                let mut user_prop_p: rsolace_sys::solClient_opaqueContainer_pt = null_mut();
+                let rt_code = rsolace_sys::solClient_msg_createUserPropertyMap(
+                    self.msg_p,
+                    &mut user_prop_p,
+                    map_size,
+                );
+                if rt_code == (SolClientReturnCode::Ok as i32) {
+                    self.user_prop_p = Some(user_prop_p);
+                    let rt_code = rsolace_sys::solClient_container_addString(
+                        self.user_prop_p.unwrap(),
+                        value_c.as_ptr(),
+                        key_c.as_ptr(),
+                    );
+                    SolClientReturnCode::from_i32(rt_code).unwrap()
+                } else {
+                    SolClientReturnCode::from_i32(rt_code).unwrap()
+                }
+            },
+        }
+    }
+
     pub fn set_binary_attachment(&mut self, data: &[u8]) -> SolClientReturnCode {
         unsafe {
             let rt_code = rsolace_sys::solClient_msg_setBinaryAttachment(
@@ -504,6 +580,19 @@ mod tests {
     fn solmsg_cos_workable(mut solmsg: SolMsg, #[case] cos: u32) {
         solmsg.set_class_of_service(cos);
         assert_eq!(solmsg.get_class_of_service().unwrap(), cos);
+    }
+
+    #[rstest]
+    fn solmsg_user_prop_workable(mut solmsg: SolMsg) {
+        let key = "ct";
+        let value = "bytes/msgpack";
+        let rt_code = solmsg.set_user_prop(key, value, 24);
+        assert_eq!(rt_code, SolClientReturnCode::Ok);
+        assert_eq!(value, solmsg.get_user_prop(key).unwrap());
+        let key2 = "c2";
+        let rt_code = solmsg.set_user_prop(key2, value, 24);
+        assert_eq!(rt_code, SolClientReturnCode::Ok);
+        assert_eq!(value, solmsg.get_user_prop(key2).unwrap());
     }
 
     #[rstest]
