@@ -460,6 +460,70 @@ impl SolClient {
         };
         SolClientReturnCode::from_i32(rt_code).unwrap()
     }
+
+    pub fn modify_client_info(
+        &mut self,
+        app_description: Option<&str>,
+        client_name: Option<&str>,
+    ) -> SolClientReturnCode {
+        if app_description.is_some() & client_name.is_some() {
+            let app_desc = CString::new(app_description.unwrap()).unwrap();
+            let client_name = CString::new(client_name.unwrap()).unwrap();
+            let mut client_info_props = [
+                rsolace_sys::SOLCLIENT_SESSION_PROP_CLIENT_NAME.as_ptr() as *const i8,
+                client_name.as_ptr() as *const i8,
+                rsolace_sys::SOLCLIENT_SESSION_PROP_APPLICATION_DESCRIPTION.as_ptr() as *const i8,
+                app_desc.as_ptr() as *const i8,
+                null_mut(),
+            ];
+            let client_info_props_ptr: *mut *const i8 = client_info_props.as_mut_ptr();
+            let rt_code = unsafe {
+                rsolace_sys::solClient_session_modifyClientInfo(
+                    self.session_p,
+                    client_info_props_ptr,
+                    rsolace_sys::SOLCLIENT_MODIFYPROP_FLAGS_WAITFORCONFIRM,
+                    null_mut(),
+                )
+            };
+            SolClientReturnCode::from_i32(rt_code).unwrap()
+        } else if app_description.is_some() {
+            let app_desc = CString::new(app_description.unwrap()).unwrap();
+            let mut client_info_props = [
+                rsolace_sys::SOLCLIENT_SESSION_PROP_APPLICATION_DESCRIPTION.as_ptr() as *const i8,
+                app_desc.as_ptr() as *const i8,
+                null_mut(),
+            ];
+            let client_info_props_ptr: *mut *const i8 = client_info_props.as_mut_ptr();
+            let rt_code = unsafe {
+                rsolace_sys::solClient_session_modifyClientInfo(
+                    self.session_p,
+                    client_info_props_ptr,
+                    rsolace_sys::SOLCLIENT_MODIFYPROP_FLAGS_WAITFORCONFIRM,
+                    null_mut(),
+                )
+            };
+            SolClientReturnCode::from_i32(rt_code).unwrap()
+        } else if client_name.is_some() {
+            let client_name = CString::new(client_name.unwrap()).unwrap();
+            let mut client_info_props = [
+                rsolace_sys::SOLCLIENT_SESSION_PROP_CLIENT_NAME.as_ptr() as *const i8,
+                client_name.as_ptr() as *const i8,
+                null_mut(),
+            ];
+            let client_info_props_ptr: *mut *const i8 = client_info_props.as_mut_ptr();
+            let rt_code = unsafe {
+                rsolace_sys::solClient_session_modifyClientInfo(
+                    self.session_p,
+                    client_info_props_ptr,
+                    rsolace_sys::SOLCLIENT_MODIFYPROP_FLAGS_WAITFORCONFIRM,
+                    null_mut(),
+                )
+            };
+            SolClientReturnCode::from_i32(rt_code).unwrap()
+        } else {
+            SolClientReturnCode::NotFound
+        }
+    }
 }
 
 impl Drop for SolClient {
