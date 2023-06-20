@@ -95,3 +95,28 @@ enum_from_primitive! {
         QueueTemp = rsolace_sys::solClient_destinationType_SOLCLIENT_QUEUE_TEMP_DESTINATION,
     }
 }
+
+enum_from_primitive! {
+    #[derive(Debug, Copy, Clone, PartialEq)]
+    #[repr(u32)]
+    pub enum SolClientSubCode {
+        Ok = rsolace_sys::solClient_subCode_SOLCLIENT_SUBCODE_OK,
+        ParamOutOfRange = rsolace_sys::solClient_subCode_SOLCLIENT_SUBCODE_PARAM_OUT_OF_RANGE,
+        ParamNullPtr = rsolace_sys::solClient_subCode_SOLCLIENT_SUBCODE_PARAM_NULL_PTR,
+        ParamConflict = rsolace_sys::solClient_subCode_SOLCLIENT_SUBCODE_PARAM_CONFLICT,
+        InsufficientSpace = rsolace_sys::solClient_subCode_SOLCLIENT_SUBCODE_INSUFFICIENT_SPACE,
+        OutOfResources = rsolace_sys::solClient_subCode_SOLCLIENT_SUBCODE_OUT_OF_RESOURCES,
+        InternalError = rsolace_sys::solClient_subCode_SOLCLIENT_SUBCODE_INTERNAL_ERROR,
+        OutOfMemory = rsolace_sys::solClient_subCode_SOLCLIENT_SUBCODE_OUT_OF_MEMORY,
+        ProtocolError = rsolace_sys::solClient_subCode_SOLCLIENT_SUBCODE_PROTOCOL_ERROR,
+        InitNotCalled = rsolace_sys::solClient_subCode_SOLCLIENT_SUBCODE_INIT_NOT_CALLED,
+        Timeout = rsolace_sys::solClient_subCode_SOLCLIENT_SUBCODE_TIMEOUT,
+        KeepAliveFailure = rsolace_sys::solClient_subCode_SOLCLIENT_SUBCODE_KEEP_ALIVE_FAILURE,
+        SessionNotEstablished = rsolace_sys::solClient_subCode_SOLCLIENT_SUBCODE_SESSION_NOT_ESTABLISHED,
+        OsError = rsolace_sys::solClient_subCode_SOLCLIENT_SUBCODE_OS_ERROR,
+        CommunicationError = rsolace_sys::solClient_subCode_SOLCLIENT_SUBCODE_COMMUNICATION_ERROR,
+        UserDataTooLarge = rsolace_sys::solClient_subCode_SOLCLIENT_SUBCODE_USER_DATA_TOO_LARGE,
+        TopicTooLarge = rsolace_sys::solClient_subCode_SOLCLIENT_SUBCODE_TOPIC_TOO_LARGE,
+        // TODO add the rest
+    }
+}

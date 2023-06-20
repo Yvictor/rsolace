@@ -1,6 +1,8 @@
 use super::solevent::SolEvent;
 use super::solmsg::{SolMsg, SolMsgError};
-use super::types::{SolClientLogLevel, SolClientReturnCode, SolClientSubscribeFlags};
+use super::types::{
+    SolClientLogLevel, SolClientReturnCode, SolClientSubCode, SolClientSubscribeFlags,
+};
 use super::utils::ConvertToCString;
 use enum_primitive::FromPrimitive;
 use snafu::prelude::{ensure, Snafu};
@@ -14,8 +16,15 @@ use std::ptr::{null, null_mut};
 pub enum SolClientError {
     #[snafu(display("SolClient context create Error"))]
     ContextCreate,
-    #[snafu(display("SolClient send request {topic} Error"))]
-    SendRequest { topic: String },
+    #[snafu(display(
+        "SolClient send request {topic}, code: {code:?}, subcode: {subcode:?} Error {error:?}"
+    ))]
+    SendRequest {
+        topic: String,
+        code: SolClientReturnCode,
+        subcode: SolClientSubCode,
+        error: String,
+    },
     #[snafu(display("SolClient inside {}", source))]
     SolMsg { source: SolMsgError },
 }
@@ -439,11 +448,29 @@ impl SolClient {
             )
         };
         let rt_code = SolClientReturnCode::from_i32(rt_code).unwrap();
+
         ensure!(
             (timeout > 0 && rt_code == SolClientReturnCode::Ok)
                 || (timeout == 0 && rt_code == SolClientReturnCode::InProgress),
             SendRequestSnafu {
-                topic: msg.get_topic().context(SolMsgSnafu)?
+                topic: msg.get_topic().context(SolMsgSnafu)?,
+                code: rt_code,
+                subcode: || -> SolClientSubCode {
+                    unsafe {
+                        let last_error_info = rsolace_sys::solClient_getLastErrorInfo();
+                        SolClientSubCode::from_u32((*last_error_info).subCode).unwrap()
+                    }
+                }(),
+                error: || -> String {
+                    unsafe {
+                        let last_error_info = rsolace_sys::solClient_getLastErrorInfo();
+                        let error_str = (*last_error_info).errorStr;
+                        std::ffi::CStr::from_ptr(error_str.as_ptr())
+                            .to_str()
+                            .unwrap()
+                            .to_owned()
+                    }
+                }()
             }
         );
         // check reply msg when non block
