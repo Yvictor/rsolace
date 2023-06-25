@@ -4,6 +4,8 @@ use super::types::{
     SolClientLogLevel, SolClientReturnCode, SolClientSubCode, SolClientSubscribeFlags,
 };
 use super::utils::ConvertToCString;
+use crossbeam_channel::Sender;
+use dashmap::DashMap;
 use enum_primitive::FromPrimitive;
 use snafu::prelude::{ensure, Snafu};
 use snafu::ResultExt;
@@ -11,6 +13,11 @@ use std::ffi::{c_void, CString};
 use std::option::Option;
 use std::ptr::{null, null_mut};
 // TODO fn pointer to struct
+#[cfg(feature = "channel")]
+use crossbeam_channel::{bounded, Receiver};
+#[cfg(feature = "tokio")]
+use tokio::sync::mpsc::{channel, Receiver, Sender};
+// #[cfg_attr(feature = "tokio", derive(Debug, Clone))]
 
 #[derive(Debug, Snafu, PartialEq)]
 pub enum SolClientError {
@@ -220,6 +227,14 @@ pub struct SolClient {
     session_func_info: Option<rsolace_sys::solClient_session_createFuncInfo_t>,
     rx_msg_callback: Option<fn(&mut Self, SolMsg)>,
     rx_event_callback: Option<fn(&mut Self, SolEvent)>,
+    request_reply_map: DashMap<String, Sender<SolMsg>>,
+    req_counter: std::sync::atomic::AtomicUsize,
+}
+
+impl Default for SolClient {
+    fn default() -> Self {
+        Self::new(SolClientLogLevel::Notice).unwrap()
+    }
 }
 
 impl SolClient {
@@ -261,16 +276,25 @@ impl SolClient {
                 session_func_info: None,
                 rx_msg_callback: None,
                 rx_event_callback: None,
+                request_reply_map: DashMap::new(),
+                req_counter: std::sync::atomic::AtomicUsize::new(0),
             })
         }
     }
 
+    fn gen_corrid(&mut self) -> String {
+        let id = self
+            .req_counter
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        format!("c{}", id)
+    }
+
     pub fn connect(&mut self, props: SessionProps) -> bool {
         let mut session_props = props.to_c();
-        let c = unsafe { std::ffi::CStr::from_ptr(session_props[9]).to_str().unwrap() };
-        let uname = unsafe { std::ffi::CStr::from_ptr(session_props[5]).to_str().unwrap() };
-        tracing::debug!("cstr: {:?}, {:?}", props.compression_level, c);
-        tracing::debug!("username cstr: {:?}, {:?}", props.username, uname);
+        // let c = unsafe { std::ffi::CStr::from_ptr(session_props[9]).to_str().unwrap() };
+        // let uname = unsafe { std::ffi::CStr::from_ptr(session_props[5]).to_str().unwrap() };
+        // tracing::debug!("cstr: {:?}, {:?}", props.compression_level, c);
+        // tracing::debug!("username cstr: {:?}, {:?}", props.username, uname);
         let session_props_ptr: *mut *const i8 = session_props.as_mut_ptr();
 
         let user_p: *mut c_void = self as *mut _ as *mut c_void;
@@ -284,7 +308,23 @@ impl SolClient {
             match solmsg {
                 Ok(msg) => {
                     let self_ref: &mut SolClient = &mut *(user_p as *mut SolClient);
-                    if let Some(cb) = self_ref.rx_msg_callback {
+                    if msg.is_reply() {
+                        let corr_id = msg.get_correlation_id().unwrap();
+                        tracing::debug!("resp msg corrid: {}", corr_id);
+                        // self_ref.request_reply_map.remove(&corr_id);
+                        if let Some((_corrid, sender)) = self_ref.request_reply_map.remove(&corr_id)
+                        {
+                            // let (corrid, msg) = msg.take();
+                            match sender.send(msg) {
+                                Ok(_) => {
+                                    tracing::debug!("resp sended corrid: {}", corr_id);
+                                }
+                                Err(e) => {
+                                    tracing::error!("send msg to channel error: {}", e);
+                                }
+                            }
+                        }
+                    } else if let Some(cb) = self_ref.rx_msg_callback {
                         cb(self_ref, msg);
                     } else {
                         msg.dump(true);
@@ -437,7 +477,29 @@ impl SolClient {
         SolClientReturnCode::from_i32(rt_code).unwrap()
     }
 
+    #[cfg(feature = "sync")]
     pub fn send_request(&self, msg: &SolMsg, timeout: u32) -> Result<SolMsg, SolClientError> {
+        let (rt_code, reply_msg_pt) = self.send_request_unsafe_part(msg, timeout);
+
+        ensure!(
+            (timeout > 0 && rt_code == SolClientReturnCode::Ok)
+                || (timeout == 0 && rt_code == SolClientReturnCode::InProgress),
+            SendRequestSnafu {
+                topic: msg.get_topic().context(SolMsgSnafu)?,
+                code: rt_code,
+                subcode: self.get_last_error_subcode(),
+                error: self.get_last_error_msg()
+            }
+        );
+        // check reply msg when non block
+        Ok(SolMsg::from_ptr(reply_msg_pt).unwrap())
+    }
+
+    fn send_request_unsafe_part(
+        &self,
+        msg: &SolMsg,
+        timeout: u32,
+    ) -> (SolClientReturnCode, rsolace_sys::solClient_opaqueMsg_pt) {
         let mut reply_msg_pt: rsolace_sys::solClient_opaqueMsg_pt = null_mut();
         let rt_code = unsafe {
             rsolace_sys::solClient_session_sendRequest(
@@ -447,35 +509,78 @@ impl SolClient {
                 timeout,
             )
         };
-        let rt_code = SolClientReturnCode::from_i32(rt_code).unwrap();
-
-        ensure!(
-            (timeout > 0 && rt_code == SolClientReturnCode::Ok)
-                || (timeout == 0 && rt_code == SolClientReturnCode::InProgress),
-            SendRequestSnafu {
-                topic: msg.get_topic().context(SolMsgSnafu)?,
-                code: rt_code,
-                subcode: || -> SolClientSubCode {
-                    unsafe {
-                        let last_error_info = rsolace_sys::solClient_getLastErrorInfo();
-                        SolClientSubCode::from_u32((*last_error_info).subCode).unwrap()
-                    }
-                }(),
-                error: || -> String {
-                    unsafe {
-                        let last_error_info = rsolace_sys::solClient_getLastErrorInfo();
-                        let error_str = (*last_error_info).errorStr;
-                        std::ffi::CStr::from_ptr(error_str.as_ptr())
-                            .to_str()
-                            .unwrap()
-                            .to_owned()
-                    }
-                }()
-            }
-        );
-        // check reply msg when non block
-        Ok(SolMsg::from_ptr(reply_msg_pt).unwrap())
+        (
+            SolClientReturnCode::from_i32(rt_code).unwrap(),
+            reply_msg_pt,
+        )
     }
+
+    fn get_last_error_subcode(&self) -> SolClientSubCode {
+        unsafe {
+            let last_error_info = rsolace_sys::solClient_getLastErrorInfo();
+            SolClientSubCode::from_u32((*last_error_info).subCode).unwrap()
+        }
+    }
+
+    fn get_last_error_msg(&self) -> String {
+        unsafe {
+            let last_error_info = rsolace_sys::solClient_getLastErrorInfo();
+            let error_str = (*last_error_info).errorStr;
+            std::ffi::CStr::from_ptr(error_str.as_ptr())
+                .to_str()
+                .unwrap()
+                .to_owned()
+        }
+    }
+
+    #[cfg(feature = "channel")]
+    pub fn send_request_with_channel(
+        &mut self,
+        msg: &mut SolMsg,
+        timeout: u32,
+    ) -> Result<Receiver<SolMsg>, SolClientError> {
+        let corrid = self.gen_corrid();
+        msg.set_correlation_id(&corrid);
+        // tracing::debug!("send request with channel, corrid: {}", corrid);
+        let (s, r) = bounded(1);
+        // tracing::debug!(
+        //     "send request with channel, corrid: {}, insert to map",
+        //     corrid
+        // );
+        // let reply_msg_pt: rsolace_sys::solClient_opaqueMsg_pt = null_mut();
+        if timeout == 0 {
+            self.request_reply_map.insert(corrid, s);
+            // tracing::debug!("send request with channel insert to map done");
+            let (rt_code, _) = self.send_request_unsafe_part(msg, timeout);
+            ensure!(
+                rt_code == SolClientReturnCode::InProgress,
+                SendRequestSnafu {
+                    topic: msg.get_topic().context(SolMsgSnafu)?,
+                    code: rt_code,
+                    subcode: self.get_last_error_subcode(),
+                    error: self.get_last_error_msg()
+                }
+            );
+        } else {
+            let (rt_code, reply_msg_pt) = self.send_request_unsafe_part(msg, timeout);
+            ensure!(
+                rt_code == SolClientReturnCode::Ok,
+                SendRequestSnafu {
+                    topic: msg.get_topic().context(SolMsgSnafu)?,
+                    code: rt_code,
+                    subcode: self.get_last_error_subcode(),
+                    error: self.get_last_error_msg()
+                }
+            );
+            if rt_code == SolClientReturnCode::Ok {
+                s.send(SolMsg::from_ptr(reply_msg_pt).unwrap()).unwrap();
+            }
+        }
+        Ok(r)
+    }
+
+    #[cfg(feature = "tokio")]
+    pub async fn send_request() {}
 
     pub fn send_reply(&self, rx_msg: &SolMsg, reply_msg: &SolMsg) -> SolClientReturnCode {
         let rt_code = unsafe {
@@ -532,5 +637,6 @@ impl Drop for SolClient {
             rsolace_sys::solClient_context_destroy(&mut self.context_p);
             rsolace_sys::solClient_cleanup();
         }
+        // tracing::debug!("solace client dropped");
     }
 }
