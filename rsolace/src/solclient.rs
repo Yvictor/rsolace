@@ -4,7 +4,6 @@ use super::types::{
     SolClientLogLevel, SolClientReturnCode, SolClientSubCode, SolClientSubscribeFlags,
 };
 use super::utils::ConvertToCString;
-use crossbeam_channel::Sender;
 use dashmap::DashMap;
 use enum_primitive::FromPrimitive;
 use snafu::prelude::{ensure, Snafu};
@@ -14,7 +13,7 @@ use std::option::Option;
 use std::ptr::{null, null_mut};
 // TODO fn pointer to struct
 #[cfg(feature = "channel")]
-use crossbeam_channel::{bounded, Receiver};
+use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
 #[cfg(feature = "tokio")]
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 // #[cfg_attr(feature = "tokio", derive(Debug, Clone))]
@@ -225,10 +224,28 @@ pub struct SolClient {
     // context_func_info: rsolace_sys::solClient_context_createFuncInfo_t,
     session_p: rsolace_sys::solClient_opaqueSession_pt,
     session_func_info: Option<rsolace_sys::solClient_session_createFuncInfo_t>,
+    #[cfg(feature = "raw")]
     rx_msg_callback: Option<fn(&mut Self, SolMsg)>,
+    #[cfg(feature = "raw")]
     rx_event_callback: Option<fn(&mut Self, SolEvent)>,
+    #[cfg(feature = "channel")]
+    msg_sender: Sender<SolMsg>,
+    #[cfg(feature = "channel")]
+    msg_receiver: Receiver<SolMsg>,
+    #[cfg(feature = "channel")]
+    p2p_sender: Sender<SolMsg>,
+    #[cfg(feature = "channel")]
+    p2p_receiver: Receiver<SolMsg>,
+    #[cfg(feature = "channel")]
+    request_sender: Sender<SolMsg>,
+    #[cfg(feature = "channel")]
+    request_receiver: Receiver<SolMsg>,
+    #[cfg(feature = "channel")]
+    event_sender: Sender<SolEvent>,
+    #[cfg(feature = "channel")]
+    event_receiver: Receiver<SolEvent>,
+    #[cfg(feature = "channel")]
     request_reply_map: DashMap<String, Sender<SolMsg>>,
-    req_counter: std::sync::atomic::AtomicUsize,
 }
 
 impl Default for SolClient {
@@ -269,24 +286,39 @@ impl SolClient {
                 ContextCreateSnafu
             );
 
+            let (msg_sender, msg_receiver) = unbounded();
+            let (p2p_sender, p2p_receiver) = unbounded();
+            let (request_sender, request_receiver) = unbounded();
+            let (event_sender, envent_receiver) = unbounded();
             Ok(SolClient {
                 context_p: context_p,
                 // context_func_info: context_func_info,
                 session_p: null_mut(),
                 session_func_info: None,
+                #[cfg(feature = "raw")]
                 rx_msg_callback: None,
+                #[cfg(feature = "raw")]
                 rx_event_callback: None,
+                #[cfg(feature = "channel")]
+                msg_sender: msg_sender,
+                #[cfg(feature = "channel")]
+                msg_receiver: msg_receiver,
+                #[cfg(feature = "channel")]
+                p2p_sender: p2p_sender,
+                #[cfg(feature = "channel")]
+                p2p_receiver: p2p_receiver,
+                #[cfg(feature = "channel")]
+                request_sender: request_sender,
+                #[cfg(feature = "channel")]
+                request_receiver: request_receiver,
+                #[cfg(feature = "channel")]
+                event_sender: event_sender,
+                #[cfg(feature = "channel")]
+                event_receiver: envent_receiver,
+                #[cfg(feature = "channel")]
                 request_reply_map: DashMap::new(),
-                req_counter: std::sync::atomic::AtomicUsize::new(0),
             })
         }
-    }
-
-    fn gen_corrid(&mut self) -> String {
-        let id = self
-            .req_counter
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        format!("c{}", id)
     }
 
     pub fn connect(&mut self, props: SessionProps) -> bool {
@@ -308,26 +340,53 @@ impl SolClient {
             match solmsg {
                 Ok(msg) => {
                     let self_ref: &mut SolClient = &mut *(user_p as *mut SolClient);
-                    if msg.is_reply() {
-                        let corr_id = msg.get_correlation_id().unwrap();
-                        tracing::debug!("resp msg corrid: {}", corr_id);
-                        // self_ref.request_reply_map.remove(&corr_id);
-                        if let Some((_corrid, sender)) = self_ref.request_reply_map.remove(&corr_id)
-                        {
-                            // let (corrid, msg) = msg.take();
-                            match sender.send(msg) {
-                                Ok(_) => {
-                                    tracing::debug!("resp sended corrid: {}", corr_id);
+
+                    #[cfg(feature = "channel")]
+                    {
+                        if msg.is_reply() {
+                            let corr_id: String = msg.get_correlation_id().unwrap();
+                            tracing::debug!("resp msg corrid: {}", corr_id);
+                            if let Some((_corrid, sender)) =
+                                self_ref.request_reply_map.remove(&corr_id)
+                            {
+                                match sender.send(msg) {
+                                    Ok(_) => {
+                                        tracing::debug!("resp sended corrid: {}", corr_id);
+                                    }
+                                    Err(e) => {
+                                        tracing::error!("send msg to channel error: {}", e);
+                                    }
                                 }
-                                Err(e) => {
-                                    tracing::error!("send msg to channel error: {}", e);
+                            }
+                        } else {
+                            match msg.get_reply_to() {
+                                Ok(reply_to) => {
+                                    tracing::debug!("msg reply to: {:?}", reply_to);
+                                    if let Err(e) = self_ref.request_sender.send(msg) {
+                                        tracing::error!("send request msg to channel error: {}", e);
+                                    }
+                                }
+                                Err(_e) => {
+                                    if msg.is_p2p() {
+                                        if let Err(e) = self_ref.p2p_sender.send(msg) {
+                                            tracing::error!("send p2p msg to channel error: {}", e);
+                                        }
+                                    } else {
+                                        if let Err(e) = self_ref.msg_sender.send(msg) {
+                                            tracing::error!("send msg to channel error: {}", e);
+                                        }
+                                    }
                                 }
                             }
                         }
-                    } else if let Some(cb) = self_ref.rx_msg_callback {
-                        cb(self_ref, msg);
-                    } else {
-                        msg.dump(true);
+                    }
+                    #[cfg(feature = "raw")]
+                    {
+                        if let Some(cb) = self_ref.rx_msg_callback {
+                            cb(self_ref, msg);
+                        } else {
+                            msg.dump(true);
+                        }
                     }
                 }
                 Err(e) => {
@@ -346,15 +405,24 @@ impl SolClient {
             match event {
                 Ok(event) => {
                     let self_ref: &mut SolClient = &mut *(user_p as *mut SolClient);
-                    if let Some(cb) = self_ref.rx_event_callback {
-                        cb(self_ref, event)
-                    } else {
-                        tracing::info!(
-                            "event: {}, response code: {}, info: {}",
-                            event.get_session_event_string(),
-                            event.response_code,
-                            event.info
-                        );
+                    #[cfg(feature = "raw")]
+                    {
+                        if let Some(cb) = self_ref.rx_event_callback {
+                            cb(self_ref, event)
+                        } else {
+                            tracing::info!(
+                                "event: {}, response code: {}, info: {}",
+                                event.get_session_event_string(),
+                                event.response_code,
+                                event.info
+                            );
+                        }
+                    }
+                    #[cfg(feature = "channel")]
+                    {
+                        if let Err(e) = self_ref.event_sender.send(event) {
+                            tracing::error!("send event to channel error: {}", e);
+                        }
                     }
                 }
                 Err(e) => {
@@ -398,12 +466,54 @@ impl SolClient {
         }
     }
 
+    #[cfg(feature = "raw")]
     pub fn set_rx_msg_callback(&mut self, func: fn(&mut Self, SolMsg)) {
         self.rx_msg_callback = Some(func);
     }
 
+    #[cfg(feature = "raw")]
     pub fn set_rx_event_callback(&mut self, func: fn(&mut Self, SolEvent)) {
         self.rx_event_callback = Some(func);
+    }
+
+    #[cfg(feature = "channel")]
+    pub fn get_msg_receiver(&self) -> &Receiver<SolMsg> {
+        &self.msg_receiver
+    }
+
+    #[cfg(feature = "channel")]
+    pub fn get_msg_clone_receiver(&self) -> Receiver<SolMsg> {
+        self.msg_receiver.clone()
+    }
+
+    #[cfg(feature = "channel")]
+    pub fn get_request_receiver(&self) -> &Receiver<SolMsg> {
+        &self.request_receiver
+    }
+
+    #[cfg(feature = "channel")]
+    pub fn get_request_clone_receiver(&self) -> Receiver<SolMsg> {
+        self.request_receiver.clone()
+    }
+
+    #[cfg(feature = "channel")]
+    pub fn get_p2p_receiver(&self) -> &Receiver<SolMsg> {
+        &self.p2p_receiver
+    }
+
+    #[cfg(feature = "channel")]
+    pub fn get_p2p_clone_receiver(&self) -> Receiver<SolMsg> {
+        self.p2p_receiver.clone()
+    }
+
+    #[cfg(feature = "channel")]
+    pub fn get_event_receiver(&self) -> &Receiver<SolEvent> {
+        &self.event_receiver
+    }
+
+    #[cfg(feature = "channel")]
+    pub fn get_event_clone_receiver(&self) -> Receiver<SolEvent> {
+        self.event_receiver.clone()
     }
 
     pub fn subscribe(&self, topic: &str) -> SolClientReturnCode {
@@ -477,24 +587,6 @@ impl SolClient {
         SolClientReturnCode::from_i32(rt_code).unwrap()
     }
 
-    #[cfg(feature = "sync")]
-    pub fn send_request(&self, msg: &SolMsg, timeout: u32) -> Result<SolMsg, SolClientError> {
-        let (rt_code, reply_msg_pt) = self.send_request_unsafe_part(msg, timeout);
-
-        ensure!(
-            (timeout > 0 && rt_code == SolClientReturnCode::Ok)
-                || (timeout == 0 && rt_code == SolClientReturnCode::InProgress),
-            SendRequestSnafu {
-                topic: msg.get_topic().context(SolMsgSnafu)?,
-                code: rt_code,
-                subcode: self.get_last_error_subcode(),
-                error: self.get_last_error_msg()
-            }
-        );
-        // check reply msg when non block
-        Ok(SolMsg::from_ptr(reply_msg_pt).unwrap())
-    }
-
     fn send_request_unsafe_part(
         &self,
         msg: &SolMsg,
@@ -533,14 +625,30 @@ impl SolClient {
         }
     }
 
+    #[cfg(feature = "raw")]
+    pub fn send_request(&self, msg: &SolMsg, timeout: u32) -> Result<SolMsg, SolClientError> {
+        let (rt_code, reply_msg_pt) = self.send_request_unsafe_part(msg, timeout);
+
+        ensure!(
+            (timeout > 0 && rt_code == SolClientReturnCode::Ok)
+                || (timeout == 0 && rt_code == SolClientReturnCode::InProgress),
+            SendRequestSnafu {
+                topic: msg.get_topic().context(SolMsgSnafu)?,
+                code: rt_code,
+                subcode: self.get_last_error_subcode(),
+                error: self.get_last_error_msg()
+            }
+        );
+        // check reply msg when non block
+        Ok(SolMsg::from_ptr(reply_msg_pt).unwrap())
+    }
+
     #[cfg(feature = "channel")]
-    pub fn send_request_with_channel(
+    pub fn send_request(
         &mut self,
-        msg: &mut SolMsg,
+        msg: &SolMsg,
         timeout: u32,
     ) -> Result<Receiver<SolMsg>, SolClientError> {
-        let corrid = self.gen_corrid();
-        msg.set_correlation_id(&corrid);
         // tracing::debug!("send request with channel, corrid: {}", corrid);
         let (s, r) = bounded(1);
         // tracing::debug!(
@@ -549,6 +657,7 @@ impl SolClient {
         // );
         // let reply_msg_pt: rsolace_sys::solClient_opaqueMsg_pt = null_mut();
         if timeout == 0 {
+            let corrid = msg.get_correlation_id().unwrap_or("c0".to_string());
             self.request_reply_map.insert(corrid, s);
             // tracing::debug!("send request with channel insert to map done");
             let (rt_code, _) = self.send_request_unsafe_part(msg, timeout);

@@ -10,19 +10,6 @@ fn main() {
     let solclient = SolClient::new(SolClientLogLevel::Notice);
     match solclient {
         Ok(mut solclient) => {
-            solclient.set_rx_event_callback(|_, event| {
-                tracing::info!("{:?}", event);
-            });
-            solclient.set_rx_msg_callback(|_, msg| {
-                tracing::info!(
-                    "{} {} {:?}",
-                    msg.get_topic().unwrap(),
-                    msg.get_sender_time()
-                        .unwrap_or(chrono::prelude::Utc::now())
-                        .to_rfc3339(),
-                    msg.get_binary_attachment().unwrap()
-                );
-            });
             let props = SessionProps::default()
                 .host("218.32.76.102:80")
                 .vpn("sinopac")
@@ -33,6 +20,56 @@ fn main() {
                 .connect_timeout_ms(3000)
                 .compression_level(5);
 
+            #[cfg(feature = "raw")]
+            {
+                solclient.set_rx_event_callback(|_, event| {
+                    tracing::info!("{:?}", event);
+                });
+                solclient.set_rx_msg_callback(|_, msg| {
+                    tracing::info!(
+                        "{} {} {:?}",
+                        msg.get_topic().unwrap(),
+                        msg.get_sender_time()
+                            .unwrap_or(chrono::prelude::Utc::now())
+                            .to_rfc3339(),
+                        msg.get_binary_attachment().unwrap()
+                    );
+                });
+            }
+            #[cfg(feature = "channel")]
+            {
+                let event_recv = solclient.get_event_clone_receiver();
+                let th_event = std::thread::spawn(move || loop {
+                    match event_recv.recv() {
+                        Ok(event) => {
+                            tracing::info!("{:?}", event);
+                        }
+                        Err(e) => {
+                            tracing::error!("recv event error: {:?}", e);
+                            break;
+                        }
+                    }
+                });
+                let msg_recv = solclient.get_msg_clone_receiver();
+                let th_msg = std::thread::spawn(move || loop {
+                    match msg_recv.recv() {
+                        Ok(msg) => {
+                            tracing::info!(
+                                "{} {} {:?}",
+                                msg.get_topic().unwrap(),
+                                msg.get_sender_time()
+                                    .unwrap_or(chrono::prelude::Utc::now())
+                                    .to_rfc3339(),
+                                msg.get_binary_attachment().unwrap()
+                            );
+                        }
+                        Err(e) => {
+                            tracing::error!("recv msg error: {:?}", e);
+                            break;
+                        }
+                    }
+                });
+            }
             let r = solclient.connect(props);
             tracing::info!("connect: {}", r);
 
@@ -42,6 +79,10 @@ fn main() {
             );
             solclient.subscribe_ext(
                 "QUO/v1/STK/*/TSE/2330",
+                SolClientSubscribeFlags::RequestConfirm,
+            );
+            solclient.subscribe_ext(
+                "QUO/v1/FOP/*/TFE/TXFG3",
                 SolClientSubscribeFlags::RequestConfirm,
             );
             std::thread::sleep(std::time::Duration::from_secs(5));
@@ -55,6 +96,9 @@ fn main() {
             }
             let rt = solclient.send_multiple_msg(&msgs);
             tracing::info!("send multiple msg: {:?}", rt);
+            // #[cfg(feature = "channel")]
+            // th_msg.join().unwrap();
+            // th_event.join().unwrap();
             tracing::info!("done");
         }
         Err(e) => {

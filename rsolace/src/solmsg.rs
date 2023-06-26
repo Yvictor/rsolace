@@ -473,6 +473,8 @@ impl Drop for SolMsg {
     }
 }
 
+unsafe impl Send for SolMsg {}
+
 #[cfg(test)]
 mod tests {
     use std::ptr::null_mut;

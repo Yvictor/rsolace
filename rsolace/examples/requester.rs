@@ -10,16 +10,37 @@ fn main() {
     let solclient = SolClient::new(SolClientLogLevel::Notice);
     match solclient {
         Ok(mut solclient) => {
-            solclient.set_rx_event_callback(|_, event| {
-                tracing::info!("{:?}", event);
-            });
-            solclient.set_rx_msg_callback(|_, msg| {
-                tracing::info!(
-                    "{} {:?}",
-                    msg.get_topic().unwrap(),
-                    msg.get_binary_attachment().unwrap()
-                );
-            });
+            #[cfg(feature = "raw")]
+            {
+                solclient.set_rx_event_callback(|_, event| {
+                    tracing::info!("{:?}", event);
+                });
+                solclient.set_rx_msg_callback(|_, msg| {
+                    tracing::info!(
+                        "{} {:?}",
+                        msg.get_topic().unwrap(),
+                        msg.get_binary_attachment().unwrap()
+                    );
+                });
+            }
+            #[cfg(feature = "channel")]
+            {
+                let event_recv = solclient.get_event_clone_receiver();
+                std::thread::spawn(move || loop {
+                    let event = event_recv.recv().unwrap();
+                    tracing::info!("{:?}", event);
+                });
+                let msg_recv = solclient.get_msg_clone_receiver();
+                std::thread::spawn(move || loop {
+                    let msg = msg_recv.recv().unwrap();
+                    tracing::info!(
+                        "{} {:?}",
+                        msg.get_topic().unwrap(),
+                        msg.get_binary_attachment().unwrap()
+                    );
+                });
+            }
+
             let props = SessionProps::default()
                 .host("localhost:55555")
                 .vpn("sinopac")
