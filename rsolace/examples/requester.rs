@@ -25,12 +25,12 @@ fn main() {
             }
             #[cfg(feature = "channel")]
             {
-                let event_recv = solclient.get_event_clone_receiver();
+                let event_recv = solclient.get_event_receiver();
                 std::thread::spawn(move || loop {
                     let event = event_recv.recv().unwrap();
                     tracing::info!("{:?}", event);
                 });
-                let msg_recv = solclient.get_msg_clone_receiver();
+                let msg_recv = solclient.get_msg_receiver();
                 std::thread::spawn(move || loop {
                     let msg = msg_recv.recv().unwrap();
                     tracing::info!(

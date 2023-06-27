@@ -38,7 +38,7 @@ fn main() {
             }
             #[cfg(feature = "channel")]
             {
-                let event_recv = solclient.get_event_clone_receiver();
+                let event_recv = solclient.get_event_receiver();
                 let th_event = std::thread::spawn(move || loop {
                     match event_recv.recv() {
                         Ok(event) => {
@@ -50,12 +50,12 @@ fn main() {
                         }
                     }
                 });
-                let msg_recv = solclient.get_msg_clone_receiver();
+                let msg_recv = solclient.get_msg_receiver();
                 let th_msg = std::thread::spawn(move || loop {
                     match msg_recv.recv() {
                         Ok(msg) => {
                             tracing::info!(
-                                "{} {} {:?}",
+                                "msg1 {} {} {:?}",
                                 msg.get_topic().unwrap(),
                                 msg.get_sender_time()
                                     .unwrap_or(chrono::prelude::Utc::now())
@@ -81,10 +81,10 @@ fn main() {
                 "QUO/v1/STK/*/TSE/2330",
                 SolClientSubscribeFlags::RequestConfirm,
             );
-            solclient.subscribe_ext(
-                "QUO/v1/FOP/*/TFE/TXFG3",
-                SolClientSubscribeFlags::RequestConfirm,
-            );
+            // solclient.subscribe_ext(
+            //     "QUO/v1/FOP/*/TFE/TXFG3",
+            //     SolClientSubscribeFlags::RequestConfirm,
+            // );
             std::thread::sleep(std::time::Duration::from_secs(5));
             let mut msg = SolMsg::new().unwrap();
             msg.set_topic("api/v1/test");

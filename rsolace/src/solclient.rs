@@ -477,42 +477,22 @@ impl SolClient {
     }
 
     #[cfg(feature = "channel")]
-    pub fn get_msg_receiver(&self) -> &Receiver<SolMsg> {
-        &self.msg_receiver
-    }
-
-    #[cfg(feature = "channel")]
-    pub fn get_msg_clone_receiver(&self) -> Receiver<SolMsg> {
+    pub fn get_msg_receiver(&self) -> Receiver<SolMsg> {
         self.msg_receiver.clone()
     }
 
     #[cfg(feature = "channel")]
-    pub fn get_request_receiver(&self) -> &Receiver<SolMsg> {
-        &self.request_receiver
-    }
-
-    #[cfg(feature = "channel")]
-    pub fn get_request_clone_receiver(&self) -> Receiver<SolMsg> {
+    pub fn get_request_receiver(&self) -> Receiver<SolMsg> {
         self.request_receiver.clone()
     }
 
     #[cfg(feature = "channel")]
-    pub fn get_p2p_receiver(&self) -> &Receiver<SolMsg> {
-        &self.p2p_receiver
-    }
-
-    #[cfg(feature = "channel")]
-    pub fn get_p2p_clone_receiver(&self) -> Receiver<SolMsg> {
+    pub fn get_p2p_receiver(&self) -> Receiver<SolMsg> {
         self.p2p_receiver.clone()
     }
 
     #[cfg(feature = "channel")]
-    pub fn get_event_receiver(&self) -> &Receiver<SolEvent> {
-        &self.event_receiver
-    }
-
-    #[cfg(feature = "channel")]
-    pub fn get_event_clone_receiver(&self) -> Receiver<SolEvent> {
+    pub fn get_event_receiver(&self) -> Receiver<SolEvent> {
         self.event_receiver.clone()
     }
 
