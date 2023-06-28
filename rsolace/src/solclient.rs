@@ -60,7 +60,7 @@ pub struct SessionProps {
 
 impl SessionProps {
     pub fn to_c(&self) -> [*const i8; 37] {
-        let session_props = [
+        [
             rsolace_sys::SOLCLIENT_SESSION_PROP_HOST.as_ptr() as *const i8,
             self.host.as_ptr() as *const i8,
             rsolace_sys::SOLCLIENT_SESSION_PROP_VPN_NAME.as_ptr() as *const i8,
@@ -98,8 +98,7 @@ impl SessionProps {
             rsolace_sys::SOLCLIENT_SESSION_PROP_KEEP_ALIVE_LIMIT.as_ptr() as *const i8,
             self.keep_alive_limit.as_ptr() as *const i8,
             null(),
-        ];
-        session_props
+        ]
     }
 
     pub fn username(mut self, username: &str) -> Self {
@@ -291,28 +290,28 @@ impl SolClient {
             let (request_sender, request_receiver) = unbounded();
             let (event_sender, envent_receiver) = unbounded();
             Ok(SolClient {
-                context_p: context_p,
+                context_p,
                 // context_func_info: context_func_info,
                 session_p: null_mut(),
                 session_func_info: None,
                 #[cfg(feature = "raw")]
-                rx_msg_callback: None,
+                None,
                 #[cfg(feature = "raw")]
-                rx_event_callback: None,
+                None,
                 #[cfg(feature = "channel")]
-                msg_sender: msg_sender,
+                msg_sender,
                 #[cfg(feature = "channel")]
-                msg_receiver: msg_receiver,
+                msg_receiver,
                 #[cfg(feature = "channel")]
-                p2p_sender: p2p_sender,
+                p2p_sender,
                 #[cfg(feature = "channel")]
-                p2p_receiver: p2p_receiver,
+                p2p_receiver,
                 #[cfg(feature = "channel")]
-                request_sender: request_sender,
+                request_sender,
                 #[cfg(feature = "channel")]
-                request_receiver: request_receiver,
+                request_receiver,
                 #[cfg(feature = "channel")]
-                event_sender: event_sender,
+                event_sender,
                 #[cfg(feature = "channel")]
                 event_receiver: envent_receiver,
                 #[cfg(feature = "channel")]
@@ -371,10 +370,8 @@ impl SolClient {
                                         if let Err(e) = self_ref.p2p_sender.send(msg) {
                                             tracing::error!("send p2p msg to channel error: {}", e);
                                         }
-                                    } else {
-                                        if let Err(e) = self_ref.msg_sender.send(msg) {
-                                            tracing::error!("send msg to channel error: {}", e);
-                                        }
+                                    } else if let Err(e) = self_ref.msg_sender.send(msg) {
+                                        tracing::error!("send msg to channel error: {}", e);
                                     }
                                 }
                             }
@@ -434,15 +431,15 @@ impl SolClient {
         self.session_func_info = Some(rsolace_sys::solClient_session_createFuncInfo_t {
             rxMsgInfo: rsolace_sys::solClient_session_createRxMsgCallbackFuncInfo_t {
                 callback_p: Some(message_receive_callback),
-                user_p: user_p,
+                user_p,
             },
             eventInfo: rsolace_sys::solClient_session_createEventCallbackFuncInfo_t {
                 callback_p: Some(event_receive_callback),
-                user_p: user_p,
+                user_p,
             },
             rxInfo: rsolace_sys::solClient_session_createRxCallbackFuncInfo {
                 callback_p: null_mut(),
-                user_p: user_p,
+                user_p,
             },
         });
         let session_func_info_ptr: *mut rsolace_sys::solClient_session_createFuncInfo_t =
@@ -662,7 +659,8 @@ impl SolClient {
                 }
             );
             if rt_code == SolClientReturnCode::Ok {
-                s.send(SolMsg::from_ptr(reply_msg_pt).unwrap()).unwrap();
+                s.send(unsafe { SolMsg::from_ptr(reply_msg_pt).unwrap() })
+                    .unwrap();
             }
         }
         Ok(r)

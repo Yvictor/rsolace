@@ -49,7 +49,7 @@ pub enum SolMsgError {
 impl Destination {
     pub fn new(dest_type: SolClientDestType, dest: &str) -> Destination {
         Destination {
-            dest_type: dest_type,
+            dest_type,
             dest: dest.to_string(),
         }
     }
@@ -75,13 +75,18 @@ impl SolMsg {
             // }
         }
         Ok(SolMsg {
-            msg_p: msg_p,
+            msg_p,
             user_prop_p: None,
             // container_p: None,
         })
     }
 
-    pub fn from_ptr(msg_p: rsolace_sys::solClient_opaqueMsg_pt) -> Result<SolMsg, SolMsgError> {
+    /// # Safety
+    ///
+    /// This function should not be called by check msg_ptr is valid?.
+    pub unsafe fn from_ptr(
+        msg_p: rsolace_sys::solClient_opaqueMsg_pt,
+    ) -> Result<SolMsg, SolMsgError> {
         // TODO how to check the ptr is valid
         let mut mode = 0;
         let mut user_prop_p: rsolace_sys::solClient_opaqueContainer_pt = null_mut();
@@ -94,12 +99,12 @@ impl SolMsg {
             unsafe { rsolace_sys::solClient_msg_getUserPropertyMap(msg_p, &mut user_prop_p) };
         match SolClientReturnCode::from_i32(rt_code).unwrap() {
             SolClientReturnCode::Ok => Ok(SolMsg {
-                msg_p: msg_p,
+                msg_p,
                 user_prop_p: Some(user_prop_p),
             }),
             _ => {
                 Ok(SolMsg {
-                    msg_p: msg_p,
+                    msg_p,
                     user_prop_p: None, //Some(user_prop_p)
                 })
             }
@@ -230,10 +235,7 @@ impl SolMsg {
 
     pub fn is_p2p(&self) -> bool {
         match self.get_topic() {
-            Ok(topic) => match &topic[..4] {
-                "#P2P" => true,
-                _ => false,
-            },
+            Ok(topic) => matches!(&topic[..4], "#P2P"),
             Err(_) => false,
         }
     }
@@ -492,7 +494,7 @@ mod tests {
 
     #[test]
     fn solmsg_from_ptr() {
-        let res = SolMsg::from_ptr(null_mut());
+        let res = unsafe { SolMsg::from_ptr(null_mut()) };
         assert!(res.is_err())
     }
 

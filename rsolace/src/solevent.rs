@@ -14,13 +14,16 @@ pub struct SolEvent {
 impl SolEvent {
     pub fn new(session_event: SolClientSessionEvent, response_code: u32, info: &str) -> SolEvent {
         SolEvent {
-            session_event: session_event,
-            response_code: response_code,
+            session_event,
+            response_code,
             info: info.to_string(),
         }
     }
 
-    pub fn from_ptr(
+    /// # Safety
+    ///
+    /// This function should not be called by check  event_ptr is valid?.
+    pub unsafe fn from_ptr(
         event_p: rsolace_sys::solClient_session_eventCallbackInfo_pt,
     ) -> Result<SolEvent, Error> {
         unsafe {

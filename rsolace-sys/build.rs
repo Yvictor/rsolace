@@ -15,13 +15,11 @@ const SOLCLIENT_GZ_PATH: &str = "solclient_Linux26-x86_64_opt_7.25.0.10.tar.gz";
 fn main() {
     let solclient_folder_name = "../solclient-7.25.0.10";
     let solclient_folder_path = std::path::Path::new(solclient_folder_name);
-    let solclient_gz_url = format!(
-        "https://github.com/Yvictor/rsolace/releases/download/0.0.0/{}",
-        SOLCLIENT_GZ_PATH
-    );
+    let solclient_gz_url =
+        format!("https://github.com/Yvictor/rsolace/releases/download/0.0.0/{SOLCLIENT_GZ_PATH}");
     let resp = reqwest::blocking::get(solclient_gz_url).unwrap();
     let content = resp.bytes().unwrap();
-    let file_gz_name = format!("{}.tar.gz", solclient_folder_name);
+    let file_gz_name = format!("{solclient_folder_name}.tar.gz");
     let file_gz_path = std::path::Path::new(&file_gz_name);
     if !file_gz_path.exists() {
         let mut file_gz = std::fs::File::create(file_gz_path).unwrap();
@@ -46,14 +44,8 @@ fn main() {
 
     // let p = format!("../{}", solclient_folder_name);
     // let solclient_path = std::path::Path::new(&p);
-    println!(
-        "cargo:rustc-link-search=native={}/lib",
-        solclient_folder_name
-    );
-    println!(
-        "cargo:rustc-link-search=native=rsolace-sys/{}/lib",
-        solclient_folder_name
-    );
+    println!("cargo:rustc-link-search=native={solclient_folder_name}/lib");
+    println!("cargo:rustc-link-search=native=rsolace-sys/{solclient_folder_name}/lib");
     // println!(
     //     "cargo:rustc-link-search=native={}/lib",
     //     package_solclient_folder.to_str().unwrap()
@@ -69,17 +61,14 @@ fn main() {
     println!("cargo:rustc-link-lib=static=solclient");
     let include_path = solclient_folder_path.join("include");
     let include_arg = format!("-I{}", include_path.to_str().unwrap());
-    println!(
-        "cargo:rerun-if-changed={}/include/solclient/solClient.h",
-        solclient_folder_name
-    );
+    println!("cargo:rerun-if-changed={solclient_folder_name}/include/solclient/solClient.h");
     let bindings = bindgen::Builder::default()
         // The input header we would like to generate
         // bindings for.
         .header("wrapper.h")
         .clang_arg("-v")
         .clang_arg("-Isolclient-7.25.0.10/include")
-        .clang_arg(&include_arg)
+        .clang_arg(include_arg)
         .allowlist_function("^solClient_.*")
         .allowlist_var("^SOLCLIENT_.*")
         // .dynamic_library_name("solclient")
