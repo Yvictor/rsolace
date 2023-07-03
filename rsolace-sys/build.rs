@@ -9,8 +9,14 @@ const SOLCLIENT_GZ_PATH: &str = "solclient_Win_vs2015_7.25.0.10.tar.gz";
 #[cfg(target_os = "macos")]
 const SOLCLIENT_GZ_PATH: &str = "solclient_Darwin-universal2_opt_7.25.0.10.tar.gz";
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 const SOLCLIENT_GZ_PATH: &str = "solclient_Linux26-x86_64_opt_7.25.0.10.tar.gz";
+
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+const SOLCLIENT_GZ_PATH: &str = "solclient_Linux26-aarch64_opt_7.25.0.10.tar.gz";
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "musl"))]
+const SOLCLIENT_GZ_PATH: &str = "solclient_Linux26-musl-x86_64_opt_7.25.0.10.tar.gz";
 
 fn main() {
     let solclient_folder_name = "../solclient-7.25.0.10";
