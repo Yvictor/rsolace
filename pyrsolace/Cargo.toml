@@ -1,0 +1,15 @@
+[package]
+name = "pyrsolace"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "pyrsolace"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.19.1", features = ["extension-module", "abi3"] }
+rsolace = { version = "0.1.5", path = "../rsolace" }
+tracing = "0.1"
+tracing-subscriber = "0.3"
