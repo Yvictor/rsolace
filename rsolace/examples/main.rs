@@ -36,16 +36,24 @@ fn main() {
                     tracing::info!("{:?}", event);
                 });
                 let msg_recv = solclient.get_msg_receiver();
+                // let solclient1 = SolClient::new(SolClientLogLevel::Notice).unwrap();
                 std::thread::spawn(move || loop {
-                    let msg = msg_recv.recv().unwrap();
-                    tracing::info!(
-                        "{} {} {:?}",
-                        msg.get_topic().unwrap(),
-                        msg.get_sender_time()
-                            .unwrap_or(chrono::prelude::Utc::now())
-                            .to_rfc3339(),
-                        msg.get_binary_attachment().unwrap()
-                    );
+                    // solclient1.get_event_receiver();
+                    match msg_recv.recv() {
+                        Ok(msg) => {
+                            tracing::info!(
+                                "{} {} {:?}",
+                                msg.get_topic().unwrap(),
+                                msg.get_sender_time()
+                                    .unwrap_or(chrono::prelude::Utc::now())
+                                    .to_rfc3339(),
+                                msg.get_binary_attachment().unwrap()
+                            );
+                        }
+                        Err(e) => {
+                            tracing::error!("recv msg error: {}", e);
+                        }
+                    }
                 });
             }
 

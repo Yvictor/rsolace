@@ -218,11 +218,67 @@ impl std::default::Default for SessionProps {
     }
 }
 
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct SolClientRxCallbackInfo {
+    pub callback_p: rsolace_sys::solClient_flow_rxMsgCallbackFunc_t,
+    // pub user_p: *mut ::std::os::raw::c_void,
+    pub user_p: i32,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct SolClinetEventCallbackInfo {
+    pub callback_p: rsolace_sys::solClient_session_eventCallbackFunc_t,
+    // pub user_p: *mut ::std::os::raw::c_void,
+    pub user_p: i32,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct SolClientRxMsgCallbackInfo {
+    pub callback_p: rsolace_sys::solClient_flow_rxMsgCallbackFunc_t,
+    // pub user_p: *mut ::std::os::raw::c_void,
+    pub user_p: i32,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+#[allow(non_snake_case)]
+pub struct SolClientFuncInfo {
+    pub rxInfo: SolClientRxCallbackInfo,
+    pub eventInfo: SolClinetEventCallbackInfo,
+    pub rxMsgInfo: SolClientRxMsgCallbackInfo,
+}
+
+impl From<SolClientFuncInfo> for rsolace_sys::solClient_session_createFuncInfo_t {
+    fn from(value: SolClientFuncInfo) -> Self {
+        Self {
+            rxMsgInfo: rsolace_sys::solClient_session_createRxMsgCallbackFuncInfo_t {
+                callback_p: value.rxMsgInfo.callback_p,
+                user_p: value.rxMsgInfo.user_p as *mut _,
+            },
+            eventInfo: rsolace_sys::solClient_session_createEventCallbackFuncInfo_t {
+                callback_p: value.eventInfo.callback_p,
+                user_p: value.eventInfo.user_p as *mut _,
+            },
+            rxInfo: rsolace_sys::solClient_session_createRxCallbackFuncInfo {
+                callback_p: null_mut(),
+                user_p: value.rxInfo.user_p as *mut _,
+            },
+        }
+    }
+}
+
 pub struct SolClient {
-    context_p: rsolace_sys::solClient_opaqueContext_pt,
+    context_p: i32,
     // context_func_info: rsolace_sys::solClient_context_createFuncInfo_t,
-    session_p: rsolace_sys::solClient_opaqueSession_pt,
-    session_func_info: Option<rsolace_sys::solClient_session_createFuncInfo_t>,
+    // session_p: rsolace_sys::solClient_opaqueSession_pt,
+    // session_p: Option<i32>,
+    session_p: i32,
+    // session_func_info: Option<rsolace_sys::solClient_session_createFuncInfo_t>,
+    // session_func_info: Option<i32>,
+    session_func_info: Option<SolClientFuncInfo>,
     #[cfg(feature = "raw")]
     rx_msg_callback: Option<fn(&mut Self, SolMsg)>,
     #[cfg(feature = "raw")]
@@ -256,6 +312,7 @@ impl Default for SolClient {
 impl SolClient {
     pub fn new(log_level: SolClientLogLevel) -> Result<SolClient, SolClientError> {
         let mut context_p: rsolace_sys::solClient_opaqueContext_pt = null_mut();
+        let session_p: rsolace_sys::solClient_opaqueSession_pt = null_mut();
         unsafe {
             rsolace_sys::solClient_initialize(log_level as std::os::raw::c_uint, null_mut());
             let nullptr: *mut std::ffi::c_void = null_mut();
@@ -274,12 +331,14 @@ impl SolClient {
                         user_p: nullptr,
                     },
                 };
+            tracing::debug!("context_p: {:?}", context_p);
             let rt_code = rsolace_sys::solClient_context_create(
                 conext_props_ptr,
                 &mut context_p,
                 &mut context_func_info,
                 std::mem::size_of::<rsolace_sys::solClient_context_createFuncInfo>(),
             );
+            tracing::debug!("context_p: {:?}", context_p);
             ensure!(
                 rt_code == rsolace_sys::solClient_returnCode_SOLCLIENT_OK,
                 ContextCreateSnafu
@@ -290,9 +349,10 @@ impl SolClient {
             let (request_sender, request_receiver) = unbounded();
             let (event_sender, envent_receiver) = unbounded();
             Ok(SolClient {
-                context_p,
+                // context_p,
+                context_p: context_p as i32,
                 // context_func_info: context_func_info,
-                session_p: null_mut(),
+                session_p: session_p as i32,
                 session_func_info: None,
                 #[cfg(feature = "raw")]
                 None,
@@ -428,7 +488,21 @@ impl SolClient {
             }
         }
 
-        self.session_func_info = Some(rsolace_sys::solClient_session_createFuncInfo_t {
+        self.session_func_info = Some(SolClientFuncInfo {
+            rxInfo: SolClientRxCallbackInfo {
+                callback_p: None,
+                user_p: user_p as i32,
+            },
+            eventInfo: SolClinetEventCallbackInfo {
+                callback_p: Some(event_receive_callback),
+                user_p: user_p as i32,
+            },
+            rxMsgInfo: SolClientRxMsgCallbackInfo {
+                callback_p: Some(message_receive_callback),
+                user_p: user_p as i32,
+            },
+        });
+        let session_func_info = Some(rsolace_sys::solClient_session_createFuncInfo_t {
             rxMsgInfo: rsolace_sys::solClient_session_createRxMsgCallbackFuncInfo_t {
                 callback_p: Some(message_receive_callback),
                 user_p,
@@ -443,23 +517,26 @@ impl SolClient {
             },
         });
         let session_func_info_ptr: *mut rsolace_sys::solClient_session_createFuncInfo_t =
-            &mut self.session_func_info.unwrap();
+            &mut session_func_info.unwrap();
+        // &mut (rsolace_sys::solClient_session_createFuncInfo_t::from(self.session_func_info.unwrap()));
+        let mut session_p: rsolace_sys::solClient_opaqueSession_pt = null_mut();
         unsafe {
             rsolace_sys::solClient_session_create(
                 session_props_ptr,
-                self.context_p,
-                &mut self.session_p,
+                self.context_p as *mut _,
+                &mut session_p,
                 session_func_info_ptr,
                 std::mem::size_of::<rsolace_sys::solClient_session_createFuncInfo>(),
             );
-            let rt_code = rsolace_sys::solClient_session_connect(self.session_p);
+            self.session_p = session_p as i32;
+            let rt_code = rsolace_sys::solClient_session_connect(self.session_p as *mut _);
             rt_code == (SolClientReturnCode::Ok as i32)
         }
     }
 
     pub fn disconnect(&mut self) {
         unsafe {
-            rsolace_sys::solClient_session_disconnect(self.session_p);
+            rsolace_sys::solClient_session_disconnect(self.session_p as *mut _);
         }
     }
 
@@ -496,8 +573,10 @@ impl SolClient {
     pub fn subscribe(&self, topic: &str) -> SolClientReturnCode {
         let topic = CString::new(topic).unwrap();
         unsafe {
-            let rt_code =
-                rsolace_sys::solClient_session_topicSubscribe(self.session_p, topic.as_ptr());
+            let rt_code = rsolace_sys::solClient_session_topicSubscribe(
+                self.session_p as *mut _,
+                topic.as_ptr(),
+            );
             SolClientReturnCode::from_i32(rt_code).unwrap()
         }
     }
@@ -505,8 +584,10 @@ impl SolClient {
     pub fn unsubscribe(&self, topic: &str) -> SolClientReturnCode {
         let topic = CString::new(topic).unwrap();
         unsafe {
-            let rt_code =
-                rsolace_sys::solClient_session_topicUnsubscribe(self.session_p, topic.as_ptr());
+            let rt_code = rsolace_sys::solClient_session_topicUnsubscribe(
+                self.session_p as *mut _,
+                topic.as_ptr(),
+            );
             SolClientReturnCode::from_i32(rt_code).unwrap()
         }
     }
@@ -515,7 +596,7 @@ impl SolClient {
         let topic = CString::new(topic).unwrap();
         unsafe {
             let rt_code = rsolace_sys::solClient_session_topicSubscribeExt(
-                self.session_p,
+                self.session_p as *mut _,
                 flag as u32,
                 topic.as_ptr(),
             );
@@ -531,7 +612,7 @@ impl SolClient {
         let topic = CString::new(topic).unwrap();
         unsafe {
             let rt_code = rsolace_sys::solClient_session_topicUnsubscribeExt(
-                self.session_p,
+                self.session_p as *mut _,
                 flag as u32,
                 topic.as_ptr(),
             );
@@ -540,8 +621,9 @@ impl SolClient {
     }
 
     pub fn send_msg(&self, msg: &SolMsg) -> SolClientReturnCode {
-        let rt_code =
-            unsafe { rsolace_sys::solClient_session_sendMsg(self.session_p, msg.get_ptr()) };
+        let rt_code = unsafe {
+            rsolace_sys::solClient_session_sendMsg(self.session_p as *mut _, msg.get_ptr())
+        };
         SolClientReturnCode::from_i32(rt_code).unwrap()
     }
 
@@ -555,7 +637,7 @@ impl SolClient {
         }
         let rt_code = unsafe {
             rsolace_sys::solClient_session_sendMultipleMsg(
-                self.session_p,
+                self.session_p as *mut _,
                 &mut arr_msg as *mut *mut c_void,
                 msgs.len() as u32,
                 &mut num,
@@ -572,7 +654,7 @@ impl SolClient {
         let mut reply_msg_pt: rsolace_sys::solClient_opaqueMsg_pt = null_mut();
         let rt_code = unsafe {
             rsolace_sys::solClient_session_sendRequest(
-                self.session_p,
+                self.session_p as *mut _,
                 msg.get_ptr(),
                 &mut reply_msg_pt,
                 timeout,
@@ -672,7 +754,7 @@ impl SolClient {
     pub fn send_reply(&self, rx_msg: &SolMsg, reply_msg: &SolMsg) -> SolClientReturnCode {
         let rt_code = unsafe {
             rsolace_sys::solClient_session_sendReply(
-                self.session_p,
+                self.session_p as *mut _,
                 rx_msg.get_ptr(),
                 reply_msg.get_ptr(),
             )
@@ -708,7 +790,7 @@ impl SolClient {
 
         let rt_code = unsafe {
             rsolace_sys::solClient_session_modifyClientInfo(
-                self.session_p,
+                self.session_p as *mut _,
                 client_info_props.as_mut_ptr(),
                 rsolace_sys::SOLCLIENT_MODIFYPROP_FLAGS_WAITFORCONFIRM,
                 std::ptr::null_mut(),
@@ -720,10 +802,18 @@ impl SolClient {
 
 impl Drop for SolClient {
     fn drop(&mut self) {
+        let context_p = self.context_p as rsolace_sys::solClient_opaqueContext_pt;
+        // tracing::debug!("solace client context_p {}", self.context_p);
+        // tracing::debug!("solace client context_p {:?}", context_p);
         unsafe {
-            rsolace_sys::solClient_context_destroy(&mut self.context_p);
+            rsolace_sys::solClient_context_destroy(&mut (context_p as *mut _));
             rsolace_sys::solClient_cleanup();
+            // tracing::debug!("solace client context_p {:?}", context_p);
+            // tracing::debug!("solace client context_p {}", self.context_p);
         }
-        // tracing::debug!("solace client dropped");
+        tracing::debug!("solace client dropped");
     }
 }
+
+// unsafe impl Send for SolClient {}
+// unsafe impl Sync for SolClient {}
