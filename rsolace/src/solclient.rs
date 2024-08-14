@@ -1,7 +1,9 @@
+use super::solcache::CacheSessionProps;
 use super::solevent::SolEvent;
 use super::solmsg::{SolMsg, SolMsgError};
 use super::types::{
-    SolClientLogLevel, SolClientReturnCode, SolClientSubCode, SolClientSubscribeFlags,
+    ErrorInfo, SolClientCacheRequestFlags, SolClientLogLevel, SolClientReturnCode,
+    SolClientSubscribeFlags,
 };
 use super::utils::ConvertToCString;
 use dashmap::DashMap;
@@ -22,14 +24,18 @@ use tokio::sync::mpsc::{channel, Receiver, Sender};
 pub enum SolClientError {
     #[snafu(display("SolClient context create Error"))]
     ContextCreate,
-    #[snafu(display(
-        "SolClient send request {topic}, code: {code:?}, subcode: {subcode:?} Error {error:?}"
-    ))]
+    #[snafu(display("SolClient send request {topic}, code: {code:?}, Error {error:?}"))]
     SendRequest {
         topic: String,
         code: SolClientReturnCode,
-        subcode: SolClientSubCode,
-        error: String,
+        error: ErrorInfo,
+    },
+    #[snafu(display("SolClient send cache request {topic}, request_id: {request_id}, code: {code:?}, Error {error:?}"))]
+    SendCacheRequest {
+        topic: String,
+        request_id: u64,
+        code: SolClientReturnCode,
+        error: ErrorInfo,
     },
     #[snafu(display("SolClient inside {}", source))]
     SolMsg { source: SolMsgError },
@@ -666,22 +672,11 @@ impl SolClient {
         )
     }
 
-    fn get_last_error_subcode(&self) -> SolClientSubCode {
-        unsafe {
-            let last_error_info = rsolace_sys::solClient_getLastErrorInfo();
-            SolClientSubCode::from_u32((*last_error_info).subCode).unwrap()
-        }
-    }
-
-    fn get_last_error_msg(&self) -> String {
-        unsafe {
-            let last_error_info = rsolace_sys::solClient_getLastErrorInfo();
-            let error_str = (*last_error_info).errorStr;
-            std::ffi::CStr::from_ptr(error_str.as_ptr())
-                .to_str()
-                .unwrap()
-                .to_owned()
-        }
+    pub fn get_last_error_info(&self) -> Option<ErrorInfo> {
+        let error_info_ptr = unsafe { rsolace_sys::solClient_getLastErrorInfo() };
+        let error_info = ErrorInfo::from_error_info_ptr(error_info_ptr);
+        unsafe { rsolace_sys::solClient_resetLastErrorInfo() };
+        error_info
     }
 
     #[cfg(feature = "raw")]
@@ -694,8 +689,7 @@ impl SolClient {
             SendRequestSnafu {
                 topic: msg.get_topic().context(SolMsgSnafu)?,
                 code: rt_code,
-                subcode: self.get_last_error_subcode(),
-                error: self.get_last_error_msg()
+                error: self.get_last_error_info().unwrap(),
             }
         );
         // check reply msg when non block
@@ -725,8 +719,7 @@ impl SolClient {
                 SendRequestSnafu {
                     topic: msg.get_topic().context(SolMsgSnafu)?,
                     code: rt_code,
-                    subcode: self.get_last_error_subcode(),
-                    error: self.get_last_error_msg()
+                    error: self.get_last_error_info().unwrap(),
                 }
             );
         } else {
@@ -736,8 +729,7 @@ impl SolClient {
                 SendRequestSnafu {
                     topic: msg.get_topic().context(SolMsgSnafu)?,
                     code: rt_code,
-                    subcode: self.get_last_error_subcode(),
-                    error: self.get_last_error_msg()
+                    error: self.get_last_error_info().unwrap(),
                 }
             );
             if rt_code == SolClientReturnCode::Ok {
@@ -750,6 +742,68 @@ impl SolClient {
 
     #[cfg(feature = "tokio")]
     pub async fn send_request() {}
+
+    pub fn send_cache_request(
+        &self,
+        topic: &str,
+        request_id: u64,
+        props: CacheSessionProps,
+        flags: SolClientCacheRequestFlags,
+    ) -> Result<(), SolClientError> {
+        let topic_c = topic.to_cstring();
+        let mut cache_session_props_arr = props.to_c();
+        let cache_session_props_ptr: *mut *const i8 = cache_session_props_arr.as_mut_ptr();
+        let mut cache_session_ptr: rsolace_sys::solClient_opaqueCacheSession_pt = null_mut();
+        let r = unsafe {
+            rsolace_sys::solClient_session_createCacheSession(
+                cache_session_props_ptr,
+                self.session_p as rsolace_sys::solClient_opaqueSession_pt,
+                &mut cache_session_ptr,
+            )
+        };
+        let res = SolClientReturnCode::from_i32(r).unwrap();
+        ensure!(
+            res == SolClientReturnCode::Ok,
+            SendCacheRequestSnafu {
+                topic: topic.to_string(),
+                request_id,
+                code: res,
+                error: self.get_last_error_info().unwrap(),
+            }
+        );
+        let callback_p: Option<
+            unsafe extern "C" fn(
+                *mut std::ffi::c_void,
+                *mut rsolace_sys::solCache_eventCallbackInfo,
+                *mut std::ffi::c_void,
+            ),
+        > = None;
+        let rt_code = unsafe {
+            rsolace_sys::solClient_cacheSession_sendCacheRequest(
+                cache_session_ptr,
+                topic_c.as_ptr(),
+                request_id,
+                callback_p,
+                self.session_p as *mut _,
+                flags as u32,
+                SolClientSubscribeFlags::RequestConfirm as u32,
+            )
+        };
+        let rt_code = SolClientReturnCode::from_i32(rt_code).unwrap();
+        unsafe {
+            rsolace_sys::solClient_cacheSession_destroy(&mut cache_session_ptr);
+        }
+        ensure!(
+            rt_code == SolClientReturnCode::Ok,
+            SendCacheRequestSnafu {
+                topic: topic.to_string(),
+                request_id,
+                code: rt_code,
+                error: self.get_last_error_info().unwrap(),
+            }
+        );
+        Ok(())
+    }
 
     pub fn send_reply(&self, rx_msg: &SolMsg, reply_msg: &SolMsg) -> SolClientReturnCode {
         let rt_code = unsafe {
