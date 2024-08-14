@@ -4,3 +4,4 @@
 #include "solclient/solClient.h"
 #include "solclient/solClientMsg.h"
 #include "solclient/solClientDeprecated.h"
+#include "solclient/solCache.h"

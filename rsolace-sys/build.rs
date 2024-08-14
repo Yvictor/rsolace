@@ -68,6 +68,7 @@ fn main() {
     let include_path = solclient_folder_path.join("include");
     let include_arg = format!("-I{}", include_path.to_str().unwrap());
     println!("cargo:rerun-if-changed={solclient_folder_name}/include/solclient/solClient.h");
+    println!("cargo:rerun-if-changed={solclient_folder_name}/include/solclient/solCache.h");
     let bindings = bindgen::Builder::default()
         // The input header we would like to generate
         // bindings for.

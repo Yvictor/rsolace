@@ -542,7 +542,25 @@ pub const SOLCLIENT_FLOW_PROP_FORWARDING_MODE_STORE_AND_FORWARD: &[u8; 2usize] =
 pub const SOLCLIENT_FLOW_PROP_FORWARDING_MODE_CUT_THROUGH: &[u8; 2usize] = b"2\0";
 pub const SOLCLIENT_FLOW_PROP_FORWARDING_MODE: &[u8; 21usize] = b"FLOW_FORWARDING_MODE\0";
 pub const SOLCLIENT_FLOW_PROP_DEFAULT_FORWARDING_MODE: &[u8; 2usize] = b"1\0";
-pub type wint_t = ::std::os::raw::c_uint;
+pub const SOLCLIENT_CACHESESSION_PROP_CACHE_NAME: &[u8; 24usize] = b"CACHESESSION_CACHE_NAME\0";
+pub const SOLCLIENT_CACHESESSION_PROP_MAX_MSGS: &[u8; 22usize] = b"CACHESESSION_MAX_MSGS\0";
+pub const SOLCLIENT_CACHESESSION_PROP_MAX_AGE: &[u8; 21usize] = b"CACHESESSION_MAX_AGE\0";
+pub const SOLCLIENT_CACHESESSION_PROP_REQUESTREPLY_TIMEOUT_MS: &[u8; 27usize] =
+    b"CACHESESSION_RR_TIMEOUT_MS\0";
+pub const SOLCLIENT_CACHESESSION_PROP_REPLY_TO: &[u8; 22usize] = b"CACHESESSION_REPLY_TO\0";
+pub const SOLCLIENT_CACHESESSION_PROP_DEFAULT_CACHE_NAME: &[u8; 1usize] = b"\0";
+pub const SOLCLIENT_CACHESESSION_PROP_DEFAULT_MAX_MSGS: &[u8; 2usize] = b"1\0";
+pub const SOLCLIENT_CACHESESSION_PROP_DEFAULT_MAX_AGE: &[u8; 2usize] = b"0\0";
+pub const SOLCLIENT_CACHESESSION_PROP_DEFAULT_REQUESTREPLY_TIMEOUT_MS: &[u8; 6usize] = b"10000\0";
+pub const SOLCLIENT_CACHESESSION_PROP_DEFAULT_REPLY_TO: &[u8; 1usize] = b"\0";
+pub const SOLCLIENT_CACHESESSION_MAX_CACHE_NAME_SIZE: u32 = 200;
+pub const SOLCLIENT_CACHEREQUEST_FLAGS_NO_SUBSCRIBE: u32 = 1;
+pub const SOLCLIENT_CACHEREQUEST_FLAGS_LIVEDATA_FULFILL: u32 = 2;
+pub const SOLCLIENT_CACHEREQUEST_FLAGS_LIVEDATA_QUEUE: u32 = 4;
+pub const SOLCLIENT_CACHEREQUEST_FLAGS_LIVEDATA_FLOWTHRU: u32 = 8;
+pub const SOLCLIENT_CACHEREQUEST_FLAGS_NOWAIT_REPLY: u32 = 16;
+pub type __darwin_wint_t = ::std::os::raw::c_int;
+pub type wint_t = __darwin_wint_t;
 pub type solClient_uint8_t = ::std::os::raw::c_uchar;
 pub type solClient_int8_t = ::std::os::raw::c_schar;
 pub type solClient_uint16_t = ::std::os::raw::c_ushort;
@@ -4188,5 +4206,139 @@ extern "C" {
         opaqueSession_p: solClient_opaqueSession_pt,
         queue_p: *mut ::std::os::raw::c_char,
         length: usize,
+    ) -> solClient_returnCode_t;
+}
+pub const solCache_event_SOLCACHE_EVENT_REQUEST_COMPLETED_NOTICE: solCache_event = 0;
+pub type solCache_event = ::std::os::raw::c_uint;
+pub use self::solCache_event as solCache_event_t;
+pub type solClient_opaqueCacheSession_pt = *mut ::std::os::raw::c_void;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct solCache_eventCallbackInfo {
+    pub cacheEvent: solCache_event_t,
+    pub topic: *const ::std::os::raw::c_char,
+    pub rc: solClient_returnCode_t,
+    pub subCode: solClient_subCode_t,
+    pub cacheRequestId: solClient_uint64_t,
+}
+#[test]
+fn bindgen_test_layout_solCache_eventCallbackInfo() {
+    const UNINIT: ::std::mem::MaybeUninit<solCache_eventCallbackInfo> =
+        ::std::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::std::mem::size_of::<solCache_eventCallbackInfo>(),
+        32usize,
+        concat!("Size of: ", stringify!(solCache_eventCallbackInfo))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<solCache_eventCallbackInfo>(),
+        8usize,
+        concat!("Alignment of ", stringify!(solCache_eventCallbackInfo))
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).cacheEvent) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(solCache_eventCallbackInfo),
+            "::",
+            stringify!(cacheEvent)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).topic) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(solCache_eventCallbackInfo),
+            "::",
+            stringify!(topic)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).rc) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(solCache_eventCallbackInfo),
+            "::",
+            stringify!(rc)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).subCode) as usize - ptr as usize },
+        20usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(solCache_eventCallbackInfo),
+            "::",
+            stringify!(subCode)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).cacheRequestId) as usize - ptr as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(solCache_eventCallbackInfo),
+            "::",
+            stringify!(cacheRequestId)
+        )
+    );
+}
+pub type solCache_eventCallbackInfo_pt = *mut solCache_eventCallbackInfo;
+pub type solCache_eventCallbackFunc_t = ::std::option::Option<
+    unsafe extern "C" fn(
+        opaqueSession_p: solClient_opaqueSession_pt,
+        eventInfo_p: solCache_eventCallbackInfo_pt,
+        user_p: *mut ::std::os::raw::c_void,
+    ),
+>;
+pub type solClient_cacheRequestFlags_t = solClient_uint32_t;
+extern "C" {
+    pub fn solClient_cacheSession_eventToString(
+        cacheEvent: solCache_event_t,
+    ) -> *const ::std::os::raw::c_char;
+}
+extern "C" {
+    pub fn solClient_session_createCacheSession(
+        props: *const *const ::std::os::raw::c_char,
+        opaqueSession_p: solClient_opaqueSession_pt,
+        opaqueCacheSession_p: *mut solClient_opaqueCacheSession_pt,
+    ) -> solClient_returnCode_t;
+}
+extern "C" {
+    pub fn solClient_cacheSession_destroy(
+        opaqueCacheSession_p: *mut solClient_opaqueCacheSession_pt,
+    ) -> solClient_returnCode_t;
+}
+extern "C" {
+    pub fn solClient_cacheSession_sendCacheRequest(
+        opaqueCacheSession_p: solClient_opaqueCacheSession_pt,
+        topic_p: *const ::std::os::raw::c_char,
+        cacheRequestId: solClient_uint64_t,
+        callback_p: solCache_eventCallbackFunc_t,
+        user_p: *mut ::std::os::raw::c_void,
+        cacheflags: solClient_cacheRequestFlags_t,
+        subscribeFlags: solClient_subscribeFlags_t,
+    ) -> solClient_returnCode_t;
+}
+extern "C" {
+    pub fn solClient_cacheSession_sendCacheRequestSequence(
+        opaqueCacheSession_p: solClient_opaqueCacheSession_pt,
+        topic_p: *const ::std::os::raw::c_char,
+        cacheRequestId: solClient_uint64_t,
+        callback_p: solCache_eventCallbackFunc_t,
+        user_p: *mut ::std::os::raw::c_void,
+        cacheflags: solClient_cacheRequestFlags_t,
+        subscribeFlags: solClient_subscribeFlags_t,
+        startSeqId: solClient_int64_t,
+        endSeqId: solClient_int64_t,
+    ) -> solClient_returnCode_t;
+}
+extern "C" {
+    pub fn solClient_cacheSession_cancelCacheRequests(
+        opaqueCacheSession_p: solClient_opaqueCacheSession_pt,
     ) -> solClient_returnCode_t;
 }
