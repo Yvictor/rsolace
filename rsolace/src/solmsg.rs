@@ -293,7 +293,7 @@ impl SolMsg {
         .unwrap()
     }
 
-    pub fn is_delivery_to_one(&mut self) -> bool {
+    pub fn is_delivery_to_one(&self) -> bool {
         unsafe { rsolace_sys::solClient_msg_isDeliverToOne(self.msg_p) == 1 }
     }
 
@@ -326,11 +326,10 @@ impl SolMsg {
                 attr: "sender_time"
             }
         );
-        let naive_datetime =
-            chrono::naive::NaiveDateTime::from_timestamp_millis(ts).context(GetAttrEmptySnafu {
-                attr: "sender_time",
-            })?;
-        Ok(DateTime::from_utc(naive_datetime, chrono::Utc))
+        let datetime = DateTime::from_timestamp_millis(ts).context(GetAttrEmptySnafu {
+            attr: "sender_time",
+        })?;
+        Ok(datetime)
     }
 
     pub fn get_user_prop(&self, key: &str) -> Result<String, SolMsgError> {
