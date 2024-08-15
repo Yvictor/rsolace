@@ -1,6 +1,8 @@
 use super::types::{SolClientDeliveryMode, SolClientDestType, SolClientReturnCode};
 use enum_primitive::FromPrimitive;
+use std::borrow::Cow;
 use std::ffi::{c_void, CStr, CString};
+// use std::marker::PhantomData;
 // use std::option::Option;
 use chrono::DateTime;
 use snafu::prelude::{ensure, Snafu};
@@ -10,6 +12,7 @@ use std::ptr::null_mut;
 pub struct SolMsg {
     msg_p: rsolace_sys::solClient_opaqueMsg_pt,
     user_prop_p: Option<rsolace_sys::solClient_opaqueContainer_pt>,
+    // _ph: PhantomData<&'a ()>,
     // container_p: Option<rsolace_sys::solClient_opaqueContainer_pt>,
 }
 
@@ -77,6 +80,7 @@ impl SolMsg {
         Ok(SolMsg {
             msg_p,
             user_prop_p: None,
+            // _ph: PhantomData,
             // container_p: None,
         })
     }
@@ -101,11 +105,13 @@ impl SolMsg {
             SolClientReturnCode::Ok => Ok(SolMsg {
                 msg_p,
                 user_prop_p: Some(user_prop_p),
+                // _ph: PhantomData,
             }),
             _ => {
                 Ok(SolMsg {
                     msg_p,
                     user_prop_p: None, //Some(user_prop_p)
+                                       // _ph: PhantomData,
                 })
             }
         }
@@ -403,7 +409,7 @@ impl SolMsg {
         }
     }
 
-    pub fn get_binary_attachment(&self) -> Result<Vec<u8>, SolMsgError> {
+    pub fn get_binary_attachment(&self) -> Result<Cow<[u8]>, SolMsgError> {
         let mut data_ptr = null_mut();
         let mut data_len = 0;
         unsafe {
@@ -425,13 +431,12 @@ impl SolMsg {
                 }
             );
             // assert!(!data_ptr.is_null());
-            let v: Vec<u8> =
-                std::slice::from_raw_parts(data_ptr as *const u8, data_len as usize).to_vec();
-            Ok(v)
+            let s = std::slice::from_raw_parts(data_ptr as *const u8, data_len as usize);
+            Ok(Cow::Borrowed(s))
         }
     }
 
-    pub fn dump(&self, display_only: bool) -> Option<String> {
+    pub fn dump(&self, display_only: bool) -> Option<Cow<str>> {
         if display_only {
             unsafe {
                 rsolace_sys::solClient_msg_dump(self.msg_p, null_mut(), 0);
@@ -446,8 +451,15 @@ impl SolMsg {
                     &mut buffer_p as *mut std::os::raw::c_char,
                     4096,
                 );
-                let dump = CStr::from_ptr(&buffer_p as *const i8).to_str().unwrap();
-                Some(dump.to_string())
+                // println!("buffer_p: {:?}", buffer_p);
+                Some(CStr::from_ptr(&buffer_p as *const i8).to_string_lossy())
+                // match CStr::from_ptr(&buffer_p as *const i8).to_string_lossy() {
+                //     Ok(dump) => Some(dump.to_string()),
+                //     Err(e) => {
+                //         tracing::error!("Error converting buffer to string: {}", e);
+                //         None
+                //     }
+                // }
             }
         }
     }
@@ -460,7 +472,7 @@ impl std::fmt::Debug for SolMsg {
             f,
             "SolMsg {:?} \n{}",
             &self.msg_p,
-            &self.dump(false).unwrap_or("".to_string())
+            &self.dump(false).unwrap_or("None".into())
         )
     }
 }

@@ -269,6 +269,15 @@ impl Dest {
         Dest(Destination::new(dest_type.0, dest_name))
     }
 
+    fn __str__(&self) -> String {
+        format!("{:?}", self.0)
+    }
+
+    fn __repr__(&self) -> String {
+        format!("{:?}", self.0)
+    }
+
+
     #[getter]
     fn get_dest_type(&self) -> DestType {
         DestType(self.0.dest_type)
@@ -475,8 +484,8 @@ impl Msg {
     }
 
     #[getter(delivery_mode)]
-    fn get_delivery_mode(&mut self) -> DeliveryMode {
-        DeliveryMode(self.0.get_delivery_mode().unwrap())
+    fn get_delivery_mode(&mut self) -> Option<DeliveryMode> {
+        self.0.get_delivery_mode().ok().map(|delivery_mode| DeliveryMode(delivery_mode))
     }
 
     #[setter(dest)]
@@ -485,8 +494,8 @@ impl Msg {
     }
 
     #[getter(dest)]
-    fn get_dest(&self) -> Dest {
-        Dest(self.0.get_destination().unwrap())
+    fn get_dest(&self) -> Option<Dest> {
+        self.0.get_destination().ok().map(|dest| Dest(dest))
     }
 
     #[setter(reply_to)]
@@ -495,8 +504,8 @@ impl Msg {
     }
 
     #[getter(reply_to)]
-    fn get_reply_to(&self) -> Dest {
-        Dest(self.0.get_reply_to().unwrap())
+    fn get_reply_to(&self) -> Option<Dest> {
+        self.0.get_reply_to().ok().map(|dest| Dest(dest))
     }
 
     #[setter(is_reply)]
@@ -530,8 +539,8 @@ impl Msg {
     }
 
     #[getter(corr_id)]
-    fn get_corr_id(&self) -> String {
-        self.0.get_correlation_id().unwrap()
+    fn get_corr_id(&self) -> Option<String> {
+        self.0.get_correlation_id().ok()
     }
 
     #[getter(cos)]
@@ -560,8 +569,8 @@ impl Msg {
     }
 
     #[getter(topic)]
-    fn get_topic(&self) -> String {
-        self.0.get_topic().unwrap()
+    fn get_topic(&self) -> Option<String> {
+        self.0.get_topic().ok()
     }
 
     #[setter(reply_topic)]
@@ -570,18 +579,18 @@ impl Msg {
     }
 
     #[getter(reply_topic)]
-    fn get_reply_topic(&self) -> String {
-        self.0.get_reply_topic().unwrap()
+    fn get_reply_topic(&self) -> Option<String> {
+        self.0.get_reply_topic().ok()
     }
 
     #[getter(sender_time)]
-    fn get_sender_time(&self) -> DateTime<chrono::Utc> {
-        self.0.get_sender_time().unwrap()
+    fn get_sender_time(&self) -> Option<DateTime<chrono::Utc>> {
+        self.0.get_sender_time().ok()
     }
 
     
     fn get_user_prop(&self, key: &str) -> String {
-        self.0.get_user_prop(key).unwrap()
+        self.0.get_user_prop(key).unwrap_or("".into())
     }
 
     #[pyo3(signature = (key, value, map_size=10))]
@@ -596,13 +605,12 @@ impl Msg {
 
     #[getter(data)]
     fn get_data(&self) -> Cow<[u8]> {
-        // PyBytes::new(py, &self.0.get_binary_attachment().unwrap())
-        self.0.get_binary_attachment().unwrap().into()
-        // self.0.get_binary_attachment().unwrap().into()
+        self.0.get_binary_attachment().unwrap_or(Cow::Borrowed(&[]))
     }
 
-    fn dump(&self) -> String {
-        self.0.dump(false).unwrap()
+    fn dump(&self) -> Cow<str> {
+        // self.0.dump(true);
+        self.0.dump(false).unwrap_or("None".into())
     }
 
     fn __repr__(&self) -> String {
@@ -652,14 +660,20 @@ impl Client {
                 let th_msg_join = std::thread::spawn(move || loop {
                     match msg_recv.recv() {
                         Ok(msg) => {
-                            // tracing::info!("recv msg");
-                            let py_msg = Msg::new(msg);
-                            Python::with_gil(|py| {
-                                let args = PyTuple::new(py, &[py_msg.into_py(py)]); 
-                                if let Some(msg_cb) = &msg_callback {
-                                    let _res = msg_cb.call1(py, args);
+                            match &msg_callback {
+                                Some(msg_cb) => {
+                                    let py_msg = Msg::new(msg);
+                                    Python::with_gil(|py| {
+                                        let args = PyTuple::new(py, &[py_msg.into_py(py)]); 
+                                        let _res = msg_cb.call1(py, args);
+                                        
+                                    })   
                                 }
-                            })
+                                None => {
+                                    tracing::info!("{:?}", msg);
+                                }
+                            }
+
                         }
                         Err(e) => {
                             tracing::error!("recv msg error: {:?}", e);
@@ -685,15 +699,19 @@ impl Client {
                 let th_event_join = std::thread::spawn(move || loop {
                     match event_recv.recv() {
                         Ok(event) => {
-                            tracing::info!("recv event");
-                            let py_event = Event::new(event);
-                            Python::with_gil(|py| {
-                                // let event_info = PyString::new(py, &event.info);
-                                let args = PyTuple::new(py, &[py_event.into_py(py)]); 
-                                if let Some(event_cb) = &event_callback {
-                                    let _res = event_cb.call1(py, args);
+                            tracing::debug!("recv event");
+                            match &event_callback {
+                                Some(event_cb) => {
+                                    let py_event = Event::new(event);
+                                    Python::with_gil(|py| {
+                                        let args = PyTuple::new(py, &[py_event.into_py(py)]); 
+                                        let _res = event_cb.call1(py, args);
+                                    })
                                 }
-                            })
+                                None => {
+                                    tracing::info!("{:?}", event);
+                                }
+                            }
                         }
                         Err(e) => {
                             tracing::error!("recv event error: {:?}", e);
@@ -707,7 +725,7 @@ impl Client {
     }
 
     #[pyo3(signature = (
-        host, vpn, username, password, clientname="", connect_timeout_ms=3000, 
+        host, vpn, username, password, client_name="", connect_timeout_ms=3000, 
         reconnect_retries=10, keep_alive_ms=3000, reconnect_retry_wait=3000,
         keep_alive_limit=3, compression_level=1, connect_retries=3, 
         reapply_subscriptions=true, generate_sender_id=false, generate_sequence_number=false,
@@ -719,7 +737,7 @@ impl Client {
         vpn: &str,
         username: &str,
         password: &str,
-        clientname: &str,
+        client_name: &str,
         connect_timeout_ms: u32,
         reconnect_retries: u32,
         keep_alive_ms: u32,
@@ -738,7 +756,7 @@ impl Client {
             .password(password)
             .host(host)
             .vpn(vpn)
-            .client_name(clientname)
+            .client_name(client_name)
             .compression_level(compression_level)
             .connect_timeout_ms(connect_timeout_ms)
             .connect_retries(connect_retries)
