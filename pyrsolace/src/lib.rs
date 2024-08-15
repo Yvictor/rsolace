@@ -9,6 +9,38 @@ use rsolace::{solcache::CacheSessionProps, solclient::{SessionProps, SolClient, 
 use rsolace::solmsg::SolMsg;
 use rsolace::types::SolClientDeliveryMode;
 use pyo3::exceptions::PyException;
+use crossbeam_channel::{Receiver, RecvError};
+
+
+struct ReceiverError(RecvError);
+
+impl From<ReceiverError> for PyErr {
+    fn from(error: ReceiverError) -> Self {
+        PyException::new_err(format!("ReceiverError: {:?}", error.0))
+    }
+}
+
+impl From<RecvError> for ReceiverError {
+    fn from(error: RecvError) -> Self {
+        ReceiverError(error)
+    }
+}
+
+#[pyclass]
+struct SolMsgReceiver(Receiver<SolMsg>);
+
+#[pymethods]
+impl SolMsgReceiver {
+    fn __repr__(&self) -> String {
+        format!("SolMsgReceiver({:?})", self.0)
+    }
+
+    fn recv(&self) -> PyResult<Msg> {
+        self.0.recv().map_err(|e| ReceiverError(e).into()).map(Msg::new)
+    }
+}
+
+
 
 struct PySolClientError(SolClientError);
 
@@ -811,6 +843,18 @@ impl Client {
         self.solclient.send_cache_request(topic, request_id, props, flag.0).map_err(PySolClientError::from)
     }
 
+    fn send_request(&mut self, msg: &Msg, timeout: u32) -> Result<SolMsgReceiver, PySolClientError> {
+        let receiver = self.solclient.send_request(&msg.0, timeout).map_err(PySolClientError::from)?;
+        Ok(SolMsgReceiver(receiver))
+    }
+
+    fn send_reply(&self, rx_msg: &Msg, reply_msg: &Msg) -> ReturnCode {
+        ReturnCode(self.solclient.send_reply(&rx_msg.0, &reply_msg.0))
+    }
+
+    fn modify_client_info(&mut self, app_description: Option<&str>, client_name: Option<&str>) -> ReturnCode {
+        ReturnCode(self.solclient.modify_client_info(app_description, client_name))
+    }
 }
 
 

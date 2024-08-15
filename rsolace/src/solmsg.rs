@@ -267,6 +267,7 @@ impl SolMsg {
             let corr_id = CStr::from_ptr(corr_id)
                 .to_str()
                 .context(GetAttrUtf8Snafu { attr: "corrid" })?;
+            // Ok(Cow::Borrowed(corr_id))
             Ok(corr_id.to_string())
         }
     }

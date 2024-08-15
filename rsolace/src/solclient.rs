@@ -10,6 +10,7 @@ use dashmap::DashMap;
 use enum_primitive::FromPrimitive;
 use snafu::prelude::{ensure, Snafu};
 use snafu::ResultExt;
+// use std::borrow::Cow;
 use std::ffi::{c_void, CString};
 use std::option::Option;
 use std::ptr::{null, null_mut};
@@ -409,7 +410,7 @@ impl SolClient {
                     #[cfg(feature = "channel")]
                     {
                         if msg.is_reply() {
-                            let corr_id: String = msg.get_correlation_id().unwrap();
+                            let corr_id = msg.get_correlation_id().unwrap();
                             tracing::debug!("resp msg corrid: {}", corr_id);
                             if let Some((_corrid, sender)) =
                                 self_ref.request_reply_map.remove(&corr_id)
@@ -710,7 +711,7 @@ impl SolClient {
         // );
         // let reply_msg_pt: rsolace_sys::solClient_opaqueMsg_pt = null_mut();
         if timeout == 0 {
-            let corrid = msg.get_correlation_id().unwrap_or("c0".to_string());
+            let corrid = msg.get_correlation_id().unwrap_or("c0".into());
             self.request_reply_map.insert(corrid, s);
             // tracing::debug!("send request with channel insert to map done");
             let (rt_code, _) = self.send_request_unsafe_part(msg, timeout);

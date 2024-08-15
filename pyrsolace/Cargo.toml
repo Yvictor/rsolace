@@ -10,6 +10,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 chrono = "0.4.38"
+crossbeam-channel = "0.5.13"
 pyo3 = { version = "0.19.1", features = ["extension-module", "chrono"] }
 rsolace = { version = "0.1.5", path = "../rsolace" }
 tracing = "0.1"
