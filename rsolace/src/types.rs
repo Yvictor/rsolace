@@ -148,19 +148,6 @@ enum_from_primitive! {
     }
 }
 
-#[cfg(target_os = "windows")]
-enum_from_primitive! {
-    #[derive(Debug, Copy, Clone, PartialEq)]
-    #[repr(i32)]
-    pub enum SolClientCacheRequestFlags {
-        LiveDataFlowThru = rsolace_sys::SOLCLIENT_CACHEREQUEST_FLAGS_LIVEDATA_FLOWTHRU,
-        LiveDataFulfill = rsolace_sys::SOLCLIENT_CACHEREQUEST_FLAGS_LIVEDATA_FULFILL,
-        LiveDataQueue = rsolace_sys::SOLCLIENT_CACHEREQUEST_FLAGS_LIVEDATA_QUEUE,
-        NoSubscribe = rsolace_sys::SOLCLIENT_CACHEREQUEST_FLAGS_NO_SUBSCRIBE,
-        NowaitReply = rsolace_sys::SOLCLIENT_CACHEREQUEST_FLAGS_NOWAIT_REPLY,
-    }
-}
-
 #[cfg(not(target_os = "windows"))]
 enum_from_primitive! {
     #[derive(Debug, Copy, Clone, PartialEq)]
