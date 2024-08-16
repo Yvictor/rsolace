@@ -1,5 +1,4 @@
 use super::types::SolClientSessionEvent;
-use enum_primitive::FromPrimitive;
 use failure::Error;
 use std::ffi::CStr;
 

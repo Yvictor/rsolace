@@ -324,7 +324,7 @@ impl SolMsg {
         Ok(dest.dest)
     }
 
-    pub fn get_sender_time(&self) -> Result<DateTime<chrono::Utc>, SolMsgError> {
+    pub fn get_sender_dt(&self) -> Result<DateTime<chrono::Utc>, SolMsgError> {
         let mut ts = 0;
         let rt_code = unsafe { rsolace_sys::solClient_msg_getSenderTimestamp(self.msg_p, &mut ts) };
         ensure!(
@@ -337,6 +337,18 @@ impl SolMsg {
             attr: "sender_time",
         })?;
         Ok(datetime)
+    }
+
+    pub fn get_sender_ts(&self) -> Result<i64, SolMsgError> {
+        let mut ts = 0;
+        let rt_code = unsafe { rsolace_sys::solClient_msg_getSenderTimestamp(self.msg_p, &mut ts) };
+        ensure!(
+            rt_code == SolClientReturnCode::Ok as i32,
+            GetAttrSnafu {
+                attr: "sender_time"
+            }
+        );
+        Ok(ts)
     }
 
     pub fn get_user_prop(&self, key: &str) -> Result<String, SolMsgError> {

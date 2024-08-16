@@ -1,9 +1,10 @@
 use std::borrow::Cow;
 use std::thread::JoinHandle;
 
-use chrono::DateTime;
+// use chrono::DateTime;
 use pyo3::prelude::*;
-use pyo3::types::{PyFunction, PyTuple};
+// use pyo3::types::{PyFunction, PyTuple};
+use pyo3::types::PyTuple;
 use rsolace::{solcache::CacheSessionProps, solclient::{SessionProps, SolClient, SolClientError}, solevent::SolEvent, solmsg::Destination, types::{SolClientCacheRequestFlags, SolClientDestType, SolClientReturnCode, SolClientSessionEvent, SolClientSubscribeFlags}};
 
 use rsolace::solmsg::SolMsg;
@@ -615,9 +616,15 @@ impl Msg {
         self.0.get_reply_topic().ok()
     }
 
+    // not allow for abi3
+    // #[getter(sender_time)]
+    // fn get_sender_time(&self) -> Option<DateTime<chrono::Utc>> {
+    //     self.0.get_sender_time().ok()
+    // }
+
     #[getter(sender_time)]
-    fn get_sender_time(&self) -> Option<DateTime<chrono::Utc>> {
-        self.0.get_sender_time().ok()
+    fn get_sender_time(&self) -> Option<i64> {
+        self.0.get_sender_ts().ok()
     }
 
     
@@ -655,8 +662,10 @@ impl Msg {
 #[pyclass(name = "Client")]
 struct Client {
     solclient: SolClient,
-    event_callback: Option<Py<PyFunction>>, // callable
-    msg_callback: Option<Py<PyFunction>>, // callable
+    // event_callback: Option<Py<PyFunction>>, // callable
+    // msg_callback: Option<Py<PyFunction>>, // callable
+    event_callback: Option<Py<PyAny>>, // callable
+    msg_callback: Option<Py<PyAny>>, // callable
     th_event_join: Option<JoinHandle<()>>,
     th_msg_join: Option<JoinHandle<()>>,
 }
@@ -681,7 +690,7 @@ impl Client {
     }
 
     #[pyo3(signature = (msg_callback))]
-    fn set_msg_callback(&mut self, msg_callback: &PyFunction){
+    fn set_msg_callback(&mut self, msg_callback: &PyAny){
         // self.msg_callback = msg_callback.downcast::<PyFunction>().ok().map(|f| f.into());
         self.msg_callback = Some(msg_callback.into());
         match &self.th_msg_join {
@@ -719,7 +728,7 @@ impl Client {
     }
 
     #[pyo3(signature = (event_callback))]
-    fn set_event_callback(&mut self, event_callback: &PyFunction){
+    fn set_event_callback(&mut self, event_callback: &PyAny){
         // self.event_callback = event_callback.downcast::<PyFunction>().ok().map(|f| f.into());
         self.event_callback = Some(event_callback.into());
         tracing::debug!("set_event_callback: {:?}", self.event_callback);

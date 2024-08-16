@@ -57,7 +57,7 @@ fn main() {
                             tracing::info!(
                                 "msg1 {} {} {:?}",
                                 msg.get_topic().unwrap(),
-                                msg.get_sender_time()
+                                msg.get_sender_dt()
                                     .unwrap_or(chrono::prelude::Utc::now())
                                     .to_rfc3339(),
                                 msg.get_binary_attachment().unwrap()

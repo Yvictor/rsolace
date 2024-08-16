@@ -62,6 +62,12 @@ fn main() {
     if os == "macos" {
         println!("cargo:rustc-link-lib=dylib=gssapi_krb5");
     }
+    if os == "windows" {
+        println!("cargo:rustc-link-search=native={solclient_folder_name}/lib/third-party");
+        println!(
+            "cargo:rustc-link-search=native=rsolace-sys/{solclient_folder_name}/lib/third-party"
+        );
+    }
     println!("cargo:rustc-link-lib=static=ssl");
     println!("cargo:rustc-link-lib=static=crypto");
     println!("cargo:rustc-link-lib=static=solclient");
