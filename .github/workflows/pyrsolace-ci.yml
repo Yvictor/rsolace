@@ -68,7 +68,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: wheels
-          path: dist
+          path: pyrsolace/dist
 
   windows:
     runs-on: windows-latest
@@ -100,7 +100,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: wheels
-          path: dist
+          path: pyrsolace/dist
 
   macos:
     runs-on: macos-latest
@@ -123,7 +123,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: wheels
-          path: dist
+          path: pyrsolace/dist
 
   release:
     name: Release
