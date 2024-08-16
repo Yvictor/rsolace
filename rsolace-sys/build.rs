@@ -75,10 +75,14 @@ fn main() {
         println!(
             "cargo:rustc-link-search=native=rsolace-sys/{solclient_folder_name}/lib/{arch_folder}/third-party"
         );
+        println!("cargo:rustc-link-lib=static=libssl");
+        println!("cargo:rustc-link-lib=static=libcrypto");
+        println!("cargo:rustc-link-lib=static=libsolclient");
+    } else {
+        println!("cargo:rustc-link-lib=static=ssl");
+        println!("cargo:rustc-link-lib=static=crypto");
+        println!("cargo:rustc-link-lib=static=solclient");
     }
-    println!("cargo:rustc-link-lib=static=ssl");
-    println!("cargo:rustc-link-lib=static=crypto");
-    println!("cargo:rustc-link-lib=static=solclient");
     let include_path = solclient_folder_path.join("include");
     let include_arg = format!("-I{}", include_path.to_str().unwrap());
     println!("cargo:rerun-if-changed={solclient_folder_name}/include/solclient/solClient.h");
