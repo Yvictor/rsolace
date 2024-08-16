@@ -113,18 +113,18 @@ enum_from_primitive! {
     }
 }
 
-#[cfg(target_os = "windows")]
-enum_from_primitive! {
-    #[derive(Debug, Copy, Clone, PartialEq)]
-    #[repr(i32)]
-    pub enum SolClientSubscribeFlags {
-        WaitForConfirm = rsolace_sys::SOLCLIENT_SUBSCRIBE_FLAGS_WAITFORCONFIRM,
-        LocalDispatchOnly = rsolace_sys::SOLCLIENT_SUBSCRIBE_FLAGS_LOCAL_DISPATCH_ONLY,
-        RequestConfirm = rsolace_sys::SOLCLIENT_SUBSCRIBE_FLAGS_REQUEST_CONFIRM,
+impl From<u32> for SolClientSessionEvent {
+    fn from(value: u32) -> Self {
+        SolClientSessionEvent::from_u32(value).unwrap()
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+impl From<i32> for SolClientSessionEvent {
+    fn from(value: i32) -> Self {
+        SolClientSessionEvent::from_u32(value as u32).unwrap()
+    }
+}
+
 enum_from_primitive! {
     #[derive(Debug, Copy, Clone, PartialEq)]
     #[repr(u32)]
@@ -135,20 +135,6 @@ enum_from_primitive! {
     }
 }
 
-#[cfg(target_os = "windows")]
-enum_from_primitive! {
-    #[derive(Debug, Copy, Clone, PartialEq)]
-    #[repr(i32)]
-    pub enum SolClientCacheRequestFlags {
-        LiveDataFlowThru = rsolace_sys::SOLCLIENT_CACHEREQUEST_FLAGS_LIVEDATA_FLOWTHRU,
-        LiveDataFulfill = rsolace_sys::SOLCLIENT_CACHEREQUEST_FLAGS_LIVEDATA_FULFILL,
-        LiveDataQueue = rsolace_sys::SOLCLIENT_CACHEREQUEST_FLAGS_LIVEDATA_QUEUE,
-        NoSubscribe = rsolace_sys::SOLCLIENT_CACHEREQUEST_FLAGS_NO_SUBSCRIBE,
-        NowaitReply = rsolace_sys::SOLCLIENT_CACHEREQUEST_FLAGS_NOWAIT_REPLY,
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
 enum_from_primitive! {
     #[derive(Debug, Copy, Clone, PartialEq)]
     #[repr(u32)]
@@ -161,18 +147,6 @@ enum_from_primitive! {
     }
 }
 
-#[cfg(target_os = "windows")]
-enum_from_primitive! {
-    #[derive(Debug, Copy, Clone, PartialEq)]
-    #[repr(i32)]
-    pub enum SolClientDeliveryMode {
-        Direct = rsolace_sys::SOLCLIENT_DELIVERY_MODE_DIRECT,
-        Persistent = rsolace_sys::SOLCLIENT_DELIVERY_MODE_PERSISTENT,
-        NonPersistent = rsolace_sys::SOLCLIENT_DELIVERY_MODE_NONPERSISTENT,
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
 enum_from_primitive! {
     #[derive(Debug, Copy, Clone, PartialEq)]
     #[repr(u32)]
@@ -565,7 +539,9 @@ impl ErrorInfo {
             unsafe {
                 let error_info = &*error_info_ptr;
                 Some(ErrorInfo {
-                    sub_code: match SolClientSubCode::from_u32(error_info.subCode) {
+                    sub_code: match SolClientSubCode::from_u32(
+                        error_info.subCode.try_into().unwrap(),
+                    ) {
                         Some(sub_code) => SolClientSubCodeOrRaw::SubCode(sub_code),
                         None => SolClientSubCodeOrRaw::Raw(error_info.subCode),
                     },

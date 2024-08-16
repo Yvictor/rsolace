@@ -29,7 +29,7 @@ impl SolEvent {
         unsafe {
             let event = *event_p;
             Ok(SolEvent {
-                session_event: SolClientSessionEvent::from_u32(event.sessionEvent).unwrap(),
+                session_event: event.sessionEvent.into(),
                 response_code: event.responseCode,
                 info: CStr::from_ptr(event.info_p).to_str().unwrap().to_owned(),
             })

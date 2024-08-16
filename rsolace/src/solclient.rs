@@ -321,7 +321,10 @@ impl SolClient {
         let mut context_p: rsolace_sys::solClient_opaqueContext_pt = null_mut();
         let session_p: rsolace_sys::solClient_opaqueSession_pt = null_mut();
         unsafe {
-            rsolace_sys::solClient_initialize(log_level as std::os::raw::c_uint, null_mut());
+            rsolace_sys::solClient_initialize(
+                log_level as rsolace_sys::solClient_log_level_t,
+                null_mut(),
+            );
             let nullptr: *mut std::ffi::c_void = null_mut();
             let mut conext_props: [*const i8; 3] = [
                 rsolace_sys::SOLCLIENT_CONTEXT_PROP_CREATE_THREAD.as_ptr() as *const i8,
