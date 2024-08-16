@@ -70,6 +70,37 @@ jobs:
           name: wheels
           path: pyrsolace/dist
 
+  linux-arm:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [aarch64, armv7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+      - uses: uraimo/run-on-arch-action@v2.7.2
+        with:
+          arch: ${{ matrix.target }}
+          distro: ubuntu20.04
+          githubToken: ${{ github.token }}
+          install: |
+            apt-get update
+            apt-get install -y libclang-dev python3 python3-pip
+            pip install maturin
+          run: |
+            cd pyrsolace
+            maturin build --release --out dist --find-interpreter
+      - name: Upload wheels
+        uses: actions/upload-artifact@v3
+        with:
+          name: wheels
+          path: pyrsolace/dist
+
   windows:
     runs-on: windows-latest
     strategy:
@@ -129,7 +160,7 @@ jobs:
     name: Release
     runs-on: ubuntu-latest
     if: "startsWith(github.ref, 'refs/tags/')"
-    needs: [linux, windows, macos]
+    needs: [linux, windows, macos, linux-arm]
     steps:
       - uses: actions/download-artifact@v3
         with:
