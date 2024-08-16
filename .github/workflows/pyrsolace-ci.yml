@@ -49,7 +49,7 @@ jobs:
                 fi
             else
                 # If we're running on debian-based system.
-                apt update -y && apt-get install -y libssl-dev openssl pkg-config libclang-dev gcc-multilib
+                apt update -y && apt-get install -y libipc-cmd-perl libssl-dev openssl pkg-config libclang-dev gcc-multilib
             fi
       - name: Upload wheels
         uses: actions/upload-artifact@v3
