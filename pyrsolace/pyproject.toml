@@ -10,12 +10,19 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
+dynamic = ["version"]
+authors = [
+    {name = "yvictor", email = "yvictor3141@gmail.com"}
+]
+description = "Python bindings for rsolace"
+readme = "README.md"
+keywords = ["solace", "python", "rsolace", "rust"]
+
 
 [tool]
 rye = { dev-dependencies = [
     "ipython>=7.34.0",
 ] }
-
 
 
 [tool.maturin]
