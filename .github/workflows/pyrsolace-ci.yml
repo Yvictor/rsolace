@@ -23,34 +23,47 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [x86_64, aarch64, armv7]
+        target: [x86_64] #aarch64
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
         with:
           python-version: "3.10"
-      - name: Build wheels
-        uses: PyO3/maturin-action@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          working-directory: pyrsolace
-          target: ${{ matrix.target }}
-          args: --release --out dist --find-interpreter
-          sccache: "true"
-          manylinux: auto
-          docker-options: -e LIBCLANG_PATH=/opt/rh/llvm-toolset-7/root/usr/lib64/ -e LIBCLANG_STATIC_PATH=/opt/rh/llvm-toolset-7/root/usr/lib64/ -e CLANG_PATH=/opt/rh/llvm-toolset-7/root/usr/bin/clang
-          before-script-linux: |
-            # If we're running on rhel centos, install needed packages.
-            if command -v yum &> /dev/null; then
-                yum update -y && yum install -y perl-core perl-IPC-Cmd openssl openssl-devel pkgconfig libatomic centos-release-scl llvm-toolset-7 && echo 'source scl_source enable llvm-toolset-7' >> ~/.bashrc
-                # If we're running on i686 we need to symlink libatomic
-                # in order to build openssl with -latomic flag.
-                if [[ ! -d "/usr/lib64" ]]; then
-                    ln -s /usr/lib/libatomic.so.1 /usr/lib/libatomic.so
-                fi
-            else
-                # If we're running on debian-based system.
-                apt update -y && apt-get install -y perl libssl-dev openssl pkg-config libclang-dev gcc-multilib
-            fi
+          toolchain: stable
+      - name: Install LLVM and Clang
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "10.0"
+      - name: Install maturin
+        run: |
+          pip install maturin
+      - name: Build wheels
+        run: |
+          cd pyrsolace
+          maturin build --release --out dist --find-interpreter
+        # uses: PyO3/maturin-action@v1
+        # with:
+        #   working-directory: pyrsolace
+        #   target: ${{ matrix.target }}
+        #   args: --release --out dist --find-interpreter
+        #   sccache: "true"
+        #   manylinux: auto
+        #   docker-options: -e LIBCLANG_PATH=/opt/rh/llvm-toolset-7/root/usr/lib64/ -e LIBCLANG_STATIC_PATH=/opt/rh/llvm-toolset-7/root/usr/lib64/ -e CLANG_PATH=/opt/rh/llvm-toolset-7/root/usr/bin/clang
+        #   before-script-linux: |
+        #     # If we're running on rhel centos, install needed packages.
+        #     if command -v yum &> /dev/null; then
+        #         yum update -y && yum install -y perl-core perl-IPC-Cmd openssl openssl-devel pkgconfig libatomic centos-release-scl llvm-toolset-7 && echo 'source scl_source enable llvm-toolset-7' >> ~/.bashrc
+        #         # If we're running on i686 we need to symlink libatomic
+        #         # in order to build openssl with -latomic flag.
+        #         if [[ ! -d "/usr/lib64" ]]; then
+        #             ln -s /usr/lib/libatomic.so.1 /usr/lib/libatomic.so
+        #         fi
+        #     else
+        #         # If we're running on debian-based system.
+        #         apt update -y && apt-get install -y perl libssl-dev openssl pkg-config libclang-dev gcc-multilib
+        #     fi
       - name: Upload wheels
         uses: actions/upload-artifact@v3
         with:
