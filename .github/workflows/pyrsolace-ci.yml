@@ -91,6 +91,7 @@ jobs:
           install: |
             apt-get update
             apt-get install -y libclang-dev python3 python3-pip
+            curl https://sh.rustup.rs -sSf | sh
             pip install maturin
           run: |
             cd pyrsolace
