@@ -41,7 +41,7 @@ jobs:
           before-script-linux: |
             # If we're running on rhel centos, install needed packages.
             if command -v yum &> /dev/null; then
-                yum update -y && yum install -y perl-core openssl openssl-devel pkgconfig libatomic centos-release-scl llvm-toolset-7 && echo 'source scl_source enable llvm-toolset-7' >> ~/.bashrc
+                yum update -y && yum install -y perl-core perl-IPC-Cmd openssl openssl-devel pkgconfig libatomic centos-release-scl llvm-toolset-7 && echo 'source scl_source enable llvm-toolset-7' >> ~/.bashrc
                 # If we're running on i686 we need to symlink libatomic
                 # in order to build openssl with -latomic flag.
                 if [[ ! -d "/usr/lib64" ]]; then
@@ -49,7 +49,7 @@ jobs:
                 fi
             else
                 # If we're running on debian-based system.
-                apt update -y && apt-get install -y libipc-cmd-perl libssl-dev openssl pkg-config libclang-dev gcc-multilib
+                apt update -y && apt-get install -y perl libssl-dev openssl pkg-config libclang-dev gcc-multilib
             fi
       - name: Upload wheels
         uses: actions/upload-artifact@v3
