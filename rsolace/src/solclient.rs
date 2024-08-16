@@ -604,7 +604,7 @@ impl SolClient {
         unsafe {
             let rt_code = rsolace_sys::solClient_session_topicSubscribeExt(
                 self.session_p as *mut _,
-                flag as u32,
+                flag as rsolace_sys::solClient_subscribeFlags_t,
                 topic.as_ptr(),
             );
             SolClientReturnCode::from_i32(rt_code).unwrap()
@@ -620,7 +620,7 @@ impl SolClient {
         unsafe {
             let rt_code = rsolace_sys::solClient_session_topicUnsubscribeExt(
                 self.session_p as *mut _,
-                flag as u32,
+                flag as rsolace_sys::solClient_subscribeFlags_t,
                 topic.as_ptr(),
             );
             SolClientReturnCode::from_i32(rt_code).unwrap()
@@ -646,7 +646,7 @@ impl SolClient {
             rsolace_sys::solClient_session_sendMultipleMsg(
                 self.session_p as *mut _,
                 &mut arr_msg as *mut *mut c_void,
-                msgs.len() as u32,
+                msgs.len() as rsolace_sys::solClient_uint32_t,
                 &mut num,
             )
         };
@@ -786,8 +786,8 @@ impl SolClient {
                 request_id,
                 callback_p,
                 self.session_p as *mut _,
-                flags as u32,
-                SolClientSubscribeFlags::RequestConfirm as u32,
+                flags as rsolace_sys::solClient_cacheRequestFlags_t,
+                SolClientSubscribeFlags::RequestConfirm as rsolace_sys::solClient_subscribeFlags_t,
             )
         };
         let rt_code = SolClientReturnCode::from_i32(rt_code).unwrap();
