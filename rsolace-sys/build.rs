@@ -59,12 +59,15 @@ fn main() {
     // // println!("cargo:rustc-link-search=native=rsolace-sys/solclient-7.25.0.10/lib");
     // // println!("cargo:rustc-link-search=solclient-7.25.0.10/include/solclient");
     let os = std::env::consts::OS;
-    let arch = std::env::consts::ARCH;
     if os == "macos" {
         println!("cargo:rustc-link-lib=dylib=gssapi_krb5");
     }
     if os == "windows" {
-        let arch_folder = if arch == "x86_64" { "Win64" } else { "Win32" };
+        let arch_folder = if std::env::var("Platform").unwrap_or("x64".into()) == "x64" {
+            "Win64"
+        } else {
+            "Win32"
+        };
         println!("cargo:rustc-link-search=native={solclient_folder_name}/lib/{arch_folder}");
         println!(
             "cargo:rustc-link-search=native={solclient_folder_name}/lib/{arch_folder}/third-party"
