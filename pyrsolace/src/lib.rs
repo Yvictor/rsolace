@@ -1,6 +1,8 @@
-use std::borrow::Cow;
+use std::sync::Arc;
+use std::{borrow::Cow, time::Duration};
 use std::thread::JoinHandle;
 
+use crossbeam::atomic::AtomicCell;
 // use chrono::DateTime;
 use pyo3::prelude::*;
 // use pyo3::types::{PyFunction, PyTuple};
@@ -11,7 +13,21 @@ use rsolace::solmsg::SolMsg;
 use rsolace::types::SolClientDeliveryMode;
 use pyo3::exceptions::PyException;
 use crossbeam_channel::{Receiver, RecvError};
+// use rayon::{ThreadPool, ThreadPoolBuilder};
+// use once_cell::sync::Lazy;
 
+
+// pub static THREAD_POOL: Lazy<ThreadPool> = Lazy::new(|| {
+//     let thread_name = std::env::var("RSOLACE_THREAD_NAME").unwrap_or_else(|_| "rsolace".to_string());
+//     ThreadPoolBuilder::new().num_threads(
+//         std::env::var("RSOLACE_MAX_THREADS").map(|s| s.parse::<usize>().expect("interger")).unwrap_or_else(|_| {
+//             std::thread::available_parallelism()
+//             .unwrap_or(std::num::NonZeroUsize::new(1).unwrap()).get()
+//         })
+//     )
+//     .thread_name(move |i| format!("{}-{}", thread_name, i))
+//     .build().expect("could not build thread pool")
+// });
 
 struct ReceiverError(RecvError);
 
@@ -507,8 +523,33 @@ impl Msg {
 #[pymethods]
 impl Msg {
     #[new]
-    fn __new__() -> PyResult<Self> {
-        Ok(Msg(SolMsg::new().unwrap()))
+    fn __new__(topic: Option<&str>, data: Option<&[u8]>, 
+               reply_topic: Option<&str>, is_reply: Option<bool>, 
+             eligible: Option<bool>, cos: Option<u32>, 
+            is_delivery_to_one: Option<bool>) -> PyResult<Self> {
+        let mut msg = SolMsg::new().unwrap();
+        if let Some(topic) = topic {
+            msg.set_topic(topic);
+        }
+        if let Some(data) = data {
+            msg.set_binary_attachment(data);
+        }
+        if let Some(reply_topic) = reply_topic {
+            msg.set_reply_topic(reply_topic);
+        }
+        if let Some(is_reply) = is_reply {
+            msg.set_as_reply(is_reply);
+        }
+        if let Some(eligible) = eligible {
+            msg.set_eliding_eligible(eligible);
+        }
+        if let Some(cos) = cos {
+            msg.set_class_of_service(cos);
+        }
+        if let Some(is_delivery_to_one) = is_delivery_to_one {
+            msg.set_delivery_to_one(is_delivery_to_one);
+        }
+        Ok(Msg(msg))
     }
 
     #[setter(delivery_mode)]
@@ -622,7 +663,7 @@ impl Msg {
     //     self.0.get_sender_time().ok()
     // }
 
-    #[getter(sender_time)]
+    #[getter(sender_timestamp)]
     fn get_sender_time(&self) -> Option<i64> {
         self.0.get_sender_ts().ok()
     }
@@ -658,21 +699,48 @@ impl Msg {
 }
 
 
-
 #[pyclass(name = "Client")]
 struct Client {
     solclient: SolClient,
+    is_connected: bool,
     // event_callback: Option<Py<PyFunction>>, // callable
     // msg_callback: Option<Py<PyFunction>>, // callable
     event_callback: Option<Py<PyAny>>, // callable
     msg_callback: Option<Py<PyAny>>, // callable
+    request_callback: Option<Py<PyAny>>, // callable
+    p2p_callback: Option<Py<PyAny>>, // callable
     th_event_join: Option<JoinHandle<()>>,
     th_msg_join: Option<JoinHandle<()>>,
+    th_request_join: Option<JoinHandle<()>>,
+    th_p2p_join: Option<JoinHandle<()>>,
+    msg_break: Arc<AtomicCell<bool>>,
+    event_break: Arc<AtomicCell<bool>>,
+    request_break: Arc<AtomicCell<bool>>,
+    p2p_break: Arc<AtomicCell<bool>>,
 }
 
 #[pyfunction]
-fn init_tracing_logger(level: LogLevel) {
-    tracing_subscriber::fmt().with_max_level(level.0).init();
+#[pyo3(signature = (
+    level=LogLevel::Info(), 
+    display_line_number=false, 
+    display_thread_names=false, 
+    display_thread_ids=false, 
+    display_filename=false)
+)]
+fn init_tracing_logger(
+    level: LogLevel, 
+    display_line_number: bool, 
+    display_thread_names: bool, 
+    display_thread_ids: bool, 
+    display_filename: bool
+) {
+    tracing_subscriber::fmt()
+    .with_max_level(level.0)
+    .with_line_number(display_line_number)
+    .with_thread_names(display_thread_names)
+    .with_thread_ids(display_thread_ids)
+    .with_file(display_filename)
+    .init();
 }
 
 #[pymethods]
@@ -680,45 +748,92 @@ impl Client {
     #[new]
     fn __new__() -> Self {
         let solclient = SolClient::default();
+        let msg_recv = solclient.get_msg_receiver();
+        let msg_break = Arc::new(AtomicCell::new(false));
+        let msg_break_clone = msg_break.clone();
+        let th_msg_join = std::thread::spawn(move || loop {
+            match msg_recv.recv_timeout(Duration::from_millis(1000)) {
+                Ok(msg) => {
+                    tracing::info!("{:?}", msg);
+                }
+                Err(_) => {
+                    if msg_break_clone.load() {
+                        tracing::debug!("msg_loop_break");
+                        drop(msg_recv);
+                        break;
+                    }
+                }
+            }
+        });
+        let event_recv = solclient.get_event_receiver();
+        let event_break = Arc::new(AtomicCell::new(false));
+        let event_break_clone = event_break.clone();
+        let th_event_join = std::thread::spawn(move || loop {
+            match event_recv.recv_timeout(Duration::from_millis(1000)) {
+                Ok(event) => {
+                    tracing::info!("{:?}", event);
+                }
+                Err(_) => {
+                    if event_break_clone.load() {
+                        tracing::debug!("event_loop_break");
+                        drop(event_recv);
+                        break;
+                    }
+                }
+            }
+        });
         Client {
             solclient: solclient,
+            is_connected: false,
             event_callback: None,
             msg_callback: None,
-            th_event_join: None,
-            th_msg_join: None,
+            request_callback: None,
+            p2p_callback: None,
+            th_event_join: Some(th_event_join),
+            th_msg_join: Some(th_msg_join),
+            th_request_join: None,
+            th_p2p_join: None,
+            msg_break: msg_break,
+            event_break: event_break,
+            request_break: Arc::new(AtomicCell::new(false)),
+            p2p_break: Arc::new(AtomicCell::new(false)),
         }
     }
 
     #[pyo3(signature = (msg_callback))]
     fn set_msg_callback(&mut self, msg_callback: &PyAny){
         // self.msg_callback = msg_callback.downcast::<PyFunction>().ok().map(|f| f.into());
+        self.msg_break.store(true);
         self.msg_callback = Some(msg_callback.into());
+        if let Some(join_handle) = self.th_msg_join.take() {
+            tracing::debug!("msg_join_handle");
+            join_handle.join().unwrap();
+            tracing::debug!("msg_join_handle done");    
+        }
+        self.msg_break.store(false);
+        tracing::debug!("set msg_break to false");
         match &self.th_msg_join {
             Some(_) => {},
             None => {
                 let msg_recv = self.solclient.get_msg_receiver();
-                let msg_callback = self.msg_callback.as_ref().cloned();
+                let msg_callback = self.msg_callback.as_ref().cloned().unwrap();
+                let msg_break = self.msg_break.clone();
                 let th_msg_join = std::thread::spawn(move || loop {
-                    match msg_recv.recv() {
+                    // tracing::debug!("msg_cb {:?}", msg_callback);
+                    match msg_recv.recv_timeout(Duration::from_millis(500)) {
                         Ok(msg) => {
-                            match &msg_callback {
-                                Some(msg_cb) => {
-                                    let py_msg = Msg::new(msg);
-                                    Python::with_gil(|py| {
-                                        let args = PyTuple::new(py, &[py_msg.into_py(py)]); 
-                                        let _res = msg_cb.call1(py, args);
-                                        
-                                    })   
-                                }
-                                None => {
-                                    tracing::info!("{:?}", msg);
-                                }
-                            }
-
+                            let py_msg = Msg::new(msg);
+                            Python::with_gil(|py| {
+                                let args = PyTuple::new(py, &[py_msg.into_py(py)]); 
+                                let _res = msg_callback.call1(py, args);    
+                            })
                         }
-                        Err(e) => {
-                            tracing::error!("recv msg error: {:?}", e);
-                            break;
+                        Err(_e) => {
+                            if msg_break.load() {
+                                tracing::debug!("msg_break");
+                                drop(msg_recv);
+                                break;
+                            }
                         }
                     }
                 });
@@ -730,33 +845,36 @@ impl Client {
     #[pyo3(signature = (event_callback))]
     fn set_event_callback(&mut self, event_callback: &PyAny){
         // self.event_callback = event_callback.downcast::<PyFunction>().ok().map(|f| f.into());
+        self.event_break.store(true);
         self.event_callback = Some(event_callback.into());
-        tracing::debug!("set_event_callback: {:?}", self.event_callback);
+        if let Some(join_handle) = self.th_event_join.take() {
+            tracing::debug!("event_join_handle");
+            join_handle.join().unwrap();
+            tracing::debug!("event_join_handle done");    
+        }
+        self.event_break.store(false);
+        tracing::debug!("set event_break to false");
         match &self.th_event_join {
             Some(_) => {},
             None => {
                 let event_recv = self.solclient.get_event_receiver();
-                let event_callback = self.event_callback.as_ref().cloned();
+                let event_callback = self.event_callback.as_ref().cloned().unwrap();
+                let event_break = self.event_break.clone();
                 let th_event_join = std::thread::spawn(move || loop {
-                    match event_recv.recv() {
-                        Ok(event) => {
-                            tracing::debug!("recv event");
-                            match &event_callback {
-                                Some(event_cb) => {
-                                    let py_event = Event::new(event);
-                                    Python::with_gil(|py| {
-                                        let args = PyTuple::new(py, &[py_event.into_py(py)]); 
-                                        let _res = event_cb.call1(py, args);
-                                    })
-                                }
-                                None => {
-                                    tracing::info!("{:?}", event);
-                                }
-                            }
+                    match event_recv.recv_timeout(Duration::from_millis(500)) {
+                        Ok(event) => {        
+                            let py_event = Event::new(event);
+                            Python::with_gil(|py| {
+                                let args = PyTuple::new(py, &[py_event.into_py(py)]); 
+                                let _res = event_callback.call1(py, args);
+                            })
                         }
-                        Err(e) => {
-                            tracing::error!("recv event error: {:?}", e);
-                            break;
+                        Err(_e) => {
+                            if event_break.load() {
+                                tracing::debug!("event_break");
+                                drop(event_recv);
+                                break;
+                            }
                         }
                     }
                 });
@@ -764,6 +882,86 @@ impl Client {
             }
         }
     }
+
+    #[pyo3(signature = (request_callback))]
+    fn set_request_callback(&mut self, request_callback: &PyAny){
+        self.request_break.store(true);
+        self.request_callback = Some(request_callback.into());
+        if let Some(join_handle) = self.th_request_join.take() {
+            tracing::debug!("request_join_handle");
+            join_handle.join().unwrap();
+            tracing::debug!("request_join_handle done");    
+        }
+        self.request_break.store(false);
+        match &self.th_request_join {
+            Some(_) => {},
+            None => {
+                let request_recv = self.solclient.get_request_receiver();
+                let request_callback = self.request_callback.as_ref().cloned().unwrap();
+                let request_break = self.request_break.clone();
+                let th_request_join = std::thread::spawn(move || loop {
+                    match request_recv.recv_timeout(Duration::from_millis(500)) {
+                        Ok(request) => {
+                            let py_request = Msg::new(request);
+                            Python::with_gil(|py| {
+                                let args = PyTuple::new(py, &[py_request.into_py(py)]); 
+                                let _res = request_callback.call1(py, args);
+                            })   
+                        }
+                        Err(_e) => {
+                            if request_break.load() {
+                                tracing::debug!("request_break");
+                                drop(request_recv);
+                                break;
+                            }
+                        }
+                    }
+                });
+                self.th_request_join = Some(th_request_join);
+            }
+        }
+    }
+
+    #[pyo3(signature = (p2p_callback))]
+    fn set_p2p_callback(&mut self, p2p_callback: &PyAny){
+        self.p2p_break.store(true);
+        self.p2p_callback = Some(p2p_callback.into());
+        if let Some(join_handle) = self.th_p2p_join.take() {
+            tracing::debug!("p2p_join_handle");
+            join_handle.join().unwrap();
+            tracing::debug!("p2p_join_handle done");    
+        }
+        self.p2p_break.store(false);
+        tracing::debug!("set p2p_break to false");
+        match &self.th_p2p_join {
+            Some(_) => {},
+            None => {
+                let p2p_recv = self.solclient.get_p2p_receiver();
+                let p2p_callback = self.p2p_callback.as_ref().cloned().unwrap();
+                let p2p_break = self.p2p_break.clone();
+                let th_p2p_join = std::thread::spawn(move || loop {
+                    match p2p_recv.recv_timeout(Duration::from_millis(500)) {
+                        Ok(p2p) => {
+                            let py_p2p = Msg::new(p2p);
+                            Python::with_gil(|py| {
+                                let args = PyTuple::new(py, &[py_p2p.into_py(py)]); 
+                                let _res = p2p_callback.call1(py, args);
+                            })
+                        }
+                        Err(_e) => {
+                            if p2p_break.load() {
+                                tracing::debug!("p2p_break");
+                                drop(p2p_recv);
+                                break;
+                            }
+                        }
+                    }
+                });
+                self.th_p2p_join = Some(th_p2p_join);
+            }
+        }
+    }
+    
 
     #[pyo3(signature = (
         host, vpn, username, password, client_name="", connect_timeout_ms=3000, 
@@ -810,12 +1008,17 @@ impl Client {
             .generate_sequence_number(generate_sequence_number)
             .keep_alive_limit(keep_alive_limit)
             .keep_alive_int_ms(keep_alive_ms);
-        self.solclient.connect(props)
+        let r = self.solclient.connect(props);
+        self.is_connected = true;
+        r
     }
 
     #[pyo3(signature = ())]
     fn disconnect(&mut self) {
-        self.solclient.disconnect()
+        if self.is_connected {
+            self.solclient.disconnect();
+            self.is_connected = false;
+        }
     }
 
     fn subscribe(&mut self, topic: &str) -> ReturnCode {
@@ -863,6 +1066,29 @@ impl Client {
 
     fn modify_client_info(&mut self, app_description: Option<&str>, client_name: Option<&str>) -> ReturnCode {
         ReturnCode(self.solclient.modify_client_info(app_description, client_name))
+    }
+}
+
+impl Drop for Client {
+    fn drop(&mut self) {
+        self.disconnect();
+        self.msg_break.store(true);
+        self.event_break.store(true);
+        self.request_break.store(true);
+        self.p2p_break.store(true);
+        if let Some(join_handle) = self.th_msg_join.take() { 
+            join_handle.join().unwrap();
+        }
+        if let Some(join_handle) = self.th_event_join.take() { 
+            join_handle.join().unwrap();
+        }
+        if let Some(join_handle) = self.th_request_join.take() { 
+            join_handle.join().unwrap();
+        }
+        if let Some(join_handle) = self.th_p2p_join.take() { 
+            join_handle.join().unwrap();
+        }
+        
     }
 }
 
