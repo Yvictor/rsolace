@@ -81,7 +81,7 @@ fn main() {
         println!("cargo:rustc-link-lib=static=libssl");
         println!("cargo:rustc-link-lib=static=libcrypto");
         println!("cargo:rustc-link-lib=static=libsolclient");
-        println!("cargo:rustc-link-lib=static=libsolclientssl");
+        println!("cargo:rustc-link-lib=static=libsolclient_s");
     } else {
         println!("cargo:rustc-link-lib=static=ssl");
         println!("cargo:rustc-link-lib=static=crypto");
