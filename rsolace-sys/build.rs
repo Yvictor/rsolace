@@ -13,10 +13,10 @@ const SOLCLIENT_GZ_PATH: &str = "solclient_Darwin-universal2_opt_7.25.0.10.tar.g
 const SOLCLIENT_GZ_PATH: &str = "solclient_Linux26-x86_64_opt_7.25.0.10.tar.gz";
 
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-const SOLCLIENT_GZ_PATH: &str = "solclient_Linux26-aarch64_opt_7.25.0.10.tar.gz";
+const SOLCLIENT_GZ_PATH: &str = "solclient_Linux-aarch64_opt_7.25.0.10.tar.gz";
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "musl"))]
-const SOLCLIENT_GZ_PATH: &str = "solclient_Linux26-musl-x86_64_opt_7.25.0.10.tar.gz";
+const SOLCLIENT_GZ_PATH: &str = "solclient_Linux_musl-x86_64_opt_7.25.0.10.tar.gz";
 
 fn main() {
     let solclient_folder_name = "../solclient-7.25.0.10";
@@ -81,10 +81,12 @@ fn main() {
         println!("cargo:rustc-link-lib=static=libssl");
         println!("cargo:rustc-link-lib=static=libcrypto");
         println!("cargo:rustc-link-lib=static=libsolclient");
+        println!("cargo:rustc-link-lib=static=libsolclientssl");
     } else {
         println!("cargo:rustc-link-lib=static=ssl");
         println!("cargo:rustc-link-lib=static=crypto");
         println!("cargo:rustc-link-lib=static=solclient");
+        println!("cargo:rustc-link-lib=static=solclientssl");
     }
     let include_path = solclient_folder_path.join("include");
     let include_arg = format!("-I{}", include_path.to_str().unwrap());
