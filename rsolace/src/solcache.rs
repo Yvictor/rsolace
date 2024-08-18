@@ -1,5 +1,6 @@
 use super::utils::ConvertToCString;
 use std::ffi::CString;
+use std::os::raw::c_char;
 use std::ptr::null;
 
 #[derive(Debug)]
@@ -11,16 +12,17 @@ pub struct CacheSessionProps {
 }
 
 impl CacheSessionProps {
-    pub fn to_c(&self) -> [*const i8; 9] {
+    pub fn to_c(&self) -> [*const c_char; 9] {
         [
-            rsolace_sys::SOLCLIENT_CACHESESSION_PROP_CACHE_NAME.as_ptr() as *const i8,
-            self.cache_name.as_ptr() as *const i8,
-            rsolace_sys::SOLCLIENT_CACHESESSION_PROP_MAX_MSGS.as_ptr() as *const i8,
-            self.max_msgs.as_ptr() as *const i8,
-            rsolace_sys::SOLCLIENT_CACHESESSION_PROP_MAX_AGE.as_ptr() as *const i8,
-            self.max_age.as_ptr() as *const i8,
-            rsolace_sys::SOLCLIENT_CACHESESSION_PROP_REQUESTREPLY_TIMEOUT_MS.as_ptr() as *const i8,
-            self.request_reply_timeout_ms.as_ptr() as *const i8,
+            rsolace_sys::SOLCLIENT_CACHESESSION_PROP_CACHE_NAME.as_ptr() as *const c_char,
+            self.cache_name.as_ptr() as *const c_char,
+            rsolace_sys::SOLCLIENT_CACHESESSION_PROP_MAX_MSGS.as_ptr() as *const c_char,
+            self.max_msgs.as_ptr() as *const c_char,
+            rsolace_sys::SOLCLIENT_CACHESESSION_PROP_MAX_AGE.as_ptr() as *const c_char,
+            self.max_age.as_ptr() as *const c_char,
+            rsolace_sys::SOLCLIENT_CACHESESSION_PROP_REQUESTREPLY_TIMEOUT_MS.as_ptr()
+                as *const c_char,
+            self.request_reply_timeout_ms.as_ptr() as *const c_char,
             null(),
         ]
     }

@@ -13,6 +13,7 @@ use snafu::ResultExt;
 // use std::borrow::Cow;
 use std::ffi::{c_void, CString};
 use std::option::Option;
+use std::os::raw::c_char;
 use std::ptr::{null, null_mut};
 // TODO fn pointer to struct
 #[cfg(feature = "channel")]
@@ -66,44 +67,44 @@ pub struct SessionProps {
 }
 
 impl SessionProps {
-    pub fn to_c(&self) -> [*const i8; 37] {
+    pub fn to_c(&self) -> [*const c_char; 37] {
         [
-            rsolace_sys::SOLCLIENT_SESSION_PROP_HOST.as_ptr() as *const i8,
-            self.host.as_ptr() as *const i8,
-            rsolace_sys::SOLCLIENT_SESSION_PROP_VPN_NAME.as_ptr() as *const i8,
-            self.vpn.as_ptr() as *const i8,
-            rsolace_sys::SOLCLIENT_SESSION_PROP_USERNAME.as_ptr() as *const i8,
-            self.username.as_ptr() as *const i8,
-            rsolace_sys::SOLCLIENT_SESSION_PROP_PASSWORD.as_ptr() as *const i8,
-            self.password.as_ptr() as *const i8,
-            rsolace_sys::SOLCLIENT_SESSION_PROP_COMPRESSION_LEVEL.as_ptr() as *const i8,
-            self.compression_level.as_ptr() as *const i8,
-            rsolace_sys::SOLCLIENT_SESSION_PROP_CLIENT_NAME.as_ptr() as *const i8,
-            self.client_name.as_ptr() as *const i8,
-            rsolace_sys::SOLCLIENT_SESSION_PROP_CONNECT_TIMEOUT_MS.as_ptr() as *const i8,
-            self.connect_timeout_ms.as_ptr() as *const i8,
-            rsolace_sys::SOLCLIENT_SESSION_PROP_TCP_NODELAY.as_ptr() as *const i8,
-            self.tcp_nodelay.as_ptr() as *const i8,
-            rsolace_sys::SOLCLIENT_SESSION_PROP_GENERATE_RCV_TIMESTAMPS.as_ptr() as *const i8,
-            self.generate_rcv_timestamps.as_ptr() as *const i8,
-            rsolace_sys::SOLCLIENT_SESSION_PROP_GENERATE_SEND_TIMESTAMPS.as_ptr() as *const i8,
-            self.generate_send_timestamps.as_ptr() as *const i8,
-            rsolace_sys::SOLCLIENT_SESSION_PROP_GENERATE_SENDER_ID.as_ptr() as *const i8,
-            self.generate_sender_id.as_ptr() as *const i8,
-            rsolace_sys::SOLCLIENT_SESSION_PROP_GENERATE_SEQUENCE_NUMBER.as_ptr() as *const i8,
-            self.generate_sequence_number.as_ptr() as *const i8,
-            rsolace_sys::SOLCLIENT_SESSION_PROP_CONNECT_RETRIES.as_ptr() as *const i8,
-            self.connect_retries.as_ptr() as *const i8,
-            rsolace_sys::SOLCLIENT_SESSION_PROP_RECONNECT_RETRIES.as_ptr() as *const i8,
-            self.reconnect_retries.as_ptr() as *const i8,
-            rsolace_sys::SOLCLIENT_SESSION_PROP_RECONNECT_RETRY_WAIT_MS.as_ptr() as *const i8,
-            self.reconnect_retry_wait_ms.as_ptr() as *const i8,
-            rsolace_sys::SOLCLIENT_SESSION_PROP_REAPPLY_SUBSCRIPTIONS.as_ptr() as *const i8,
-            self.reapply_subscriptions.as_ptr() as *const i8,
-            rsolace_sys::SOLCLIENT_SESSION_PROP_KEEP_ALIVE_INT_MS.as_ptr() as *const i8,
-            self.keep_alive_int_ms.as_ptr() as *const i8,
-            rsolace_sys::SOLCLIENT_SESSION_PROP_KEEP_ALIVE_LIMIT.as_ptr() as *const i8,
-            self.keep_alive_limit.as_ptr() as *const i8,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_HOST.as_ptr() as *const c_char,
+            self.host.as_ptr() as *const c_char,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_VPN_NAME.as_ptr() as *const c_char,
+            self.vpn.as_ptr() as *const c_char,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_USERNAME.as_ptr() as *const c_char,
+            self.username.as_ptr() as *const c_char,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_PASSWORD.as_ptr() as *const c_char,
+            self.password.as_ptr() as *const c_char,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_COMPRESSION_LEVEL.as_ptr() as *const c_char,
+            self.compression_level.as_ptr() as *const c_char,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_CLIENT_NAME.as_ptr() as *const c_char,
+            self.client_name.as_ptr() as *const c_char,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_CONNECT_TIMEOUT_MS.as_ptr() as *const c_char,
+            self.connect_timeout_ms.as_ptr() as *const c_char,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_TCP_NODELAY.as_ptr() as *const c_char,
+            self.tcp_nodelay.as_ptr() as *const c_char,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_GENERATE_RCV_TIMESTAMPS.as_ptr() as *const c_char,
+            self.generate_rcv_timestamps.as_ptr() as *const c_char,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_GENERATE_SEND_TIMESTAMPS.as_ptr() as *const c_char,
+            self.generate_send_timestamps.as_ptr() as *const c_char,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_GENERATE_SENDER_ID.as_ptr() as *const c_char,
+            self.generate_sender_id.as_ptr() as *const c_char,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_GENERATE_SEQUENCE_NUMBER.as_ptr() as *const c_char,
+            self.generate_sequence_number.as_ptr() as *const c_char,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_CONNECT_RETRIES.as_ptr() as *const c_char,
+            self.connect_retries.as_ptr() as *const c_char,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_RECONNECT_RETRIES.as_ptr() as *const c_char,
+            self.reconnect_retries.as_ptr() as *const c_char,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_RECONNECT_RETRY_WAIT_MS.as_ptr() as *const c_char,
+            self.reconnect_retry_wait_ms.as_ptr() as *const c_char,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_REAPPLY_SUBSCRIPTIONS.as_ptr() as *const c_char,
+            self.reapply_subscriptions.as_ptr() as *const c_char,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_KEEP_ALIVE_INT_MS.as_ptr() as *const c_char,
+            self.keep_alive_int_ms.as_ptr() as *const c_char,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_KEEP_ALIVE_LIMIT.as_ptr() as *const c_char,
+            self.keep_alive_limit.as_ptr() as *const c_char,
             null(),
         ]
     }
@@ -326,12 +327,13 @@ impl SolClient {
                 null_mut(),
             );
             let nullptr: *mut std::ffi::c_void = null_mut();
-            let mut conext_props: [*const i8; 3] = [
-                rsolace_sys::SOLCLIENT_CONTEXT_PROP_CREATE_THREAD.as_ptr() as *const i8,
-                rsolace_sys::SOLCLIENT_PROP_ENABLE_VAL.as_ptr() as *const i8,
+            let mut conext_props: [*const c_char; 3] = [
+                rsolace_sys::SOLCLIENT_CONTEXT_PROP_CREATE_THREAD.as_ptr() as *const c_char,
+                rsolace_sys::SOLCLIENT_PROP_ENABLE_VAL.as_ptr() as *const c_char,
                 null(),
             ];
-            let conext_props_ptr: *mut *const i8 = conext_props.as_mut_ptr();
+            let conext_props_ptr: rsolace_sys::solClient_propertyArray_pt =
+                conext_props.as_mut_ptr();
 
             let mut context_func_info: rsolace_sys::solClient_context_createFuncInfo_t =
                 rsolace_sys::solClient_context_createFuncInfo {
@@ -396,7 +398,7 @@ impl SolClient {
         // let uname = unsafe { std::ffi::CStr::from_ptr(session_props[5]).to_str().unwrap() };
         // tracing::debug!("cstr: {:?}, {:?}", props.compression_level, c);
         // tracing::debug!("username cstr: {:?}, {:?}", props.username, uname);
-        let session_props_ptr: *mut *const i8 = session_props.as_mut_ptr();
+        let session_props_ptr: rsolace_sys::solClient_propertyArray_pt = session_props.as_mut_ptr();
 
         let user_p: *mut c_void = self as *mut _ as *mut c_void;
 
@@ -755,8 +757,8 @@ impl SolClient {
         flags: SolClientCacheRequestFlags,
     ) -> Result<(), SolClientError> {
         let topic_c = topic.to_cstring();
-        let mut cache_session_props_arr = props.to_c();
-        let cache_session_props_ptr: *mut *const i8 = cache_session_props_arr.as_mut_ptr();
+        let cache_session_props_arr = props.to_c();
+        let cache_session_props_ptr: *const *const c_char = cache_session_props_arr.as_ptr();
         let mut cache_session_ptr: rsolace_sys::solClient_opaqueCacheSession_pt = null_mut();
         let r = unsafe {
             rsolace_sys::solClient_session_createCacheSession(
@@ -825,12 +827,13 @@ impl SolClient {
         app_description: Option<&str>,
         client_name: Option<&str>,
     ) -> SolClientReturnCode {
-        let mut client_info_props = Vec::<*const i8>::new();
+        let mut client_info_props = Vec::<*const c_char>::new();
 
         if let Some(app_desc) = app_description {
             let app_desc = CString::new(app_desc).unwrap();
             client_info_props.push(
-                rsolace_sys::SOLCLIENT_SESSION_PROP_APPLICATION_DESCRIPTION.as_ptr() as *const i8,
+                rsolace_sys::SOLCLIENT_SESSION_PROP_APPLICATION_DESCRIPTION.as_ptr()
+                    as *const c_char,
             );
             client_info_props.push(app_desc.as_ptr());
         }
@@ -838,7 +841,7 @@ impl SolClient {
         if let Some(name) = client_name {
             let name_ptr = CString::new(name).unwrap();
             client_info_props
-                .push(rsolace_sys::SOLCLIENT_SESSION_PROP_CLIENT_NAME.as_ptr() as *const i8);
+                .push(rsolace_sys::SOLCLIENT_SESSION_PROP_CLIENT_NAME.as_ptr() as *const c_char);
             client_info_props.push(name_ptr.as_ptr());
         }
         if client_info_props.is_empty() {

@@ -2,6 +2,7 @@ use super::types::{SolClientDeliveryMode, SolClientDestType, SolClientReturnCode
 use enum_primitive::FromPrimitive;
 use std::borrow::Cow;
 use std::ffi::{c_void, CStr, CString};
+use std::os::raw::c_char;
 // use std::marker::PhantomData;
 // use std::option::Option;
 use chrono::DateTime;
@@ -465,7 +466,7 @@ impl SolMsg {
                     4096,
                 );
                 // println!("buffer_p: {:?}", buffer_p);
-                Some(CStr::from_ptr(&buffer_p as *const i8).to_string_lossy())
+                Some(CStr::from_ptr(&buffer_p as *const c_char).to_string_lossy())
                 // match CStr::from_ptr(&buffer_p as *const i8).to_string_lossy() {
                 //     Ok(dump) => Some(dump.to_string()),
                 //     Err(e) => {
