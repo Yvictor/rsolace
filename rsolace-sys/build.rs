@@ -13,7 +13,7 @@ const SOLCLIENT_GZ_PATH: &str = "solclient_Darwin-universal2_opt_7.25.0.10.tar.g
 const SOLCLIENT_GZ_PATH: &str = "solclient_Linux26-x86_64_opt_7.25.0.10.tar.gz";
 
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-const SOLCLIENT_GZ_PATH: &str = "solclient_Linux-aarch64_opt_7.25.0.10.tar.gz";
+const SOLCLIENT_GZ_PATH: &str = "solclient_Linux-aarch64_opt_7.25.0.10_withssl.tar.gz";
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "musl"))]
 const SOLCLIENT_GZ_PATH: &str = "solclient_Linux_musl-x86_64_opt_7.25.0.10.tar.gz";
