@@ -1,17 +1,21 @@
 use std::sync::Arc;
-use std::{borrow::Cow, time::Duration};
+use std::borrow::Cow;
+use std::time::Duration;
 use std::thread::JoinHandle;
 
-use crossbeam::atomic::AtomicCell;
 // use chrono::DateTime;
 use pyo3::prelude::*;
-// use pyo3::types::{PyFunction, PyTuple};
+// use pyo3::types::PyFunction;
 use pyo3::types::PyTuple;
-use rsolace::{solcache::CacheSessionProps, solclient::{SessionProps, SolClient, SolClientError}, solevent::SolEvent, solmsg::Destination, types::{SolClientCacheRequestFlags, SolClientDestType, SolClientReturnCode, SolClientSessionEvent, SolClientSubscribeFlags}};
-
-use rsolace::solmsg::SolMsg;
-use rsolace::types::SolClientDeliveryMode;
 use pyo3::exceptions::PyException;
+
+use rsolace::solclient::{SessionProps, SolClient, SolClientError};
+use rsolace::solevent::SolEvent;
+use rsolace::solmsg::{Destination, SolMsg};
+use rsolace::solcache::CacheSessionProps;
+use rsolace::types::{SolClientDeliveryMode, SolClientCacheRequestFlags, SolClientDestType, SolClientReturnCode, SolClientSessionEvent, SolClientSubscribeFlags};
+
+use crossbeam::atomic::AtomicCell;
 use crossbeam_channel::{Receiver, RecvError};
 // use rayon::{ThreadPool, ThreadPoolBuilder};
 // use once_cell::sync::Lazy;
@@ -44,12 +48,12 @@ impl From<RecvError> for ReceiverError {
 }
 
 #[pyclass]
-struct SolMsgReceiver(Receiver<SolMsg>);
+struct MsgReceiver(Receiver<SolMsg>);
 
 #[pymethods]
-impl SolMsgReceiver {
+impl MsgReceiver {
     fn __repr__(&self) -> String {
-        format!("SolMsgReceiver({:?})", self.0)
+        format!("MsgReceiver({:?})", self.0)
     }
 
     fn recv(&self) -> PyResult<Msg> {
@@ -300,8 +304,27 @@ impl LogLevel {
 
     #[classattr]
     #[allow(non_snake_case)] 
+    fn Warn() -> Self {
+        LogLevel(tracing::Level::WARN)
+    }
+
+    #[classattr]
+    #[allow(non_snake_case)] 
     fn Error() -> Self {
         LogLevel(tracing::Level::ERROR)
+    }
+
+    fn __str__(&self) -> String {
+        format!("{}", self.0.as_str())
+    }
+
+    fn __repr__(&self) -> String {
+        format!("LogLevel.{}", self.0.as_str())
+    }
+
+    #[getter]
+    fn name(&self) -> String {
+        self.__str__()
     }
 }
 
@@ -520,13 +543,20 @@ impl Msg {
     }
 }
 
+
 #[pymethods]
 impl Msg {
     #[new]
-    fn __new__(topic: Option<&str>, data: Option<&[u8]>, 
-               reply_topic: Option<&str>, is_reply: Option<bool>, 
-             eligible: Option<bool>, cos: Option<u32>, 
-            is_delivery_to_one: Option<bool>) -> PyResult<Self> {
+    fn __new__(
+        topic: Option<&str>,
+        data: Option<&[u8]>,
+        corr_id: Option<&str>,
+        reply_topic: Option<&str>,
+        is_reply: Option<bool>,
+        eligible: Option<bool>,
+        cos: Option<u32>,
+        is_delivery_to_one: Option<bool>,
+    ) -> PyResult<Self> {
         let mut msg = SolMsg::new().unwrap();
         if let Some(topic) = topic {
             msg.set_topic(topic);
@@ -548,6 +578,9 @@ impl Msg {
         }
         if let Some(is_delivery_to_one) = is_delivery_to_one {
             msg.set_delivery_to_one(is_delivery_to_one);
+        }
+        if let Some(corr_id) = corr_id {
+            msg.set_correlation_id(corr_id);
         }
         Ok(Msg(msg))
     }
@@ -1041,9 +1074,10 @@ impl Client {
         ReturnCode(self.solclient.send_msg(&msg.0))
     }
 
-    // fn send_multiple_msg(&mut self, msgs: &[Msg]) -> ReturnCode {
-    //     ReturnCode(self.solclient.send_multiple_msg(&msgs.iter().map(|msg| &msg.0).collect::<Vec<_>>()))
-    // }
+    fn send_multiple_msg(&mut self, msgs: Vec<PyRef<Msg>>) -> ReturnCode {
+        let m = msgs.iter().map(|msg| &msg.0).collect::<Vec<_>>();
+        ReturnCode(self.solclient.send_multiple_msg(&m))
+    }
 
     #[pyo3(signature = (topic, request_id, cache_name, max_msgs=0, max_age=0, request_reply_timeout=10000, flag=CacheRequestFlag(SolClientCacheRequestFlags::LiveDataFlowThru)))]
     fn send_cache_request(&self, topic: &str, request_id: u64, cache_name: &str, max_msgs: u32, max_age: u32, request_reply_timeout: u32, flag: CacheRequestFlag) -> Result<(), PySolClientError> {
@@ -1055,9 +1089,9 @@ impl Client {
         self.solclient.send_cache_request(topic, request_id, props, flag.0).map_err(PySolClientError::from)
     }
 
-    fn send_request(&mut self, msg: &Msg, timeout: u32) -> Result<SolMsgReceiver, PySolClientError> {
+    fn send_request(&mut self, msg: &Msg, timeout: u32) -> Result<MsgReceiver, PySolClientError> {
         let receiver = self.solclient.send_request(&msg.0, timeout).map_err(PySolClientError::from)?;
-        Ok(SolMsgReceiver(receiver))
+        Ok(MsgReceiver(receiver))
     }
 
     fn send_reply(&self, rx_msg: &Msg, reply_msg: &Msg) -> ReturnCode {

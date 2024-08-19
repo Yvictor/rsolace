@@ -639,7 +639,7 @@ impl SolClient {
         SolClientReturnCode::from_i32(rt_code).unwrap()
     }
 
-    pub fn send_multiple_msg(&self, msgs: &[SolMsg]) -> SolClientReturnCode {
+    pub fn send_multiple_msg(&self, msgs: &[&SolMsg]) -> SolClientReturnCode {
         let mut arr_msg: [rsolace_sys::solClient_opaqueMsg_pt;
             rsolace_sys::SOLCLIENT_SESSION_SEND_MULTIPLE_LIMIT as usize] =
             [null_mut(); rsolace_sys::SOLCLIENT_SESSION_SEND_MULTIPLE_LIMIT as usize];

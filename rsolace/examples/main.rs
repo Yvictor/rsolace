@@ -1,5 +1,5 @@
 use rsolace::solclient::{SessionProps, SolClient};
-use rsolace::solmsg::SolMsg;
+use rsolace::solmsg::SolMsgBuilder;
 use rsolace::types::{SolClientLogLevel, SolClientSubscribeFlags};
 use tracing_subscriber;
 
@@ -80,18 +80,23 @@ fn main() {
                 SolClientSubscribeFlags::RequestConfirm,
             );
             std::thread::sleep(std::time::Duration::from_secs(5));
-            let mut msg = SolMsg::new().unwrap();
-            msg.set_topic("api/v1/test");
+            let msg = SolMsgBuilder::new()
+                .with_topic("api/v1/test")
+                .as_delivery_to_one(true)
+                .build();
             let rt = solclient.send_msg(&msg);
             tracing::info!("send msg: {:?}", rt);
-            let mut msgs = vec![SolMsg::new().unwrap(), SolMsg::new().unwrap()];
-            for (i, msg) in msgs.iter_mut().enumerate() {
-                msg.set_topic(format!("api/v1/test/{}", i).as_str());
-            }
-            let rt = solclient.send_multiple_msg(&msgs);
+            // let mut msgs = vec![SolMsg::new().unwrap(), SolMsg::new().unwrap()];
+            // for (i, msg) in msgs.iter_mut().enumerate() {
+            //     msg.set_topic(format!("api/v1/test/{}", i).as_str());
+            // }
+            let msgs = vec![
+                SolMsgBuilder::new().with_topic("api/v1/test/0").build(),
+                SolMsgBuilder::new().with_topic("api/v1/test/1").build(),
+            ];
+            let rt = solclient.send_multiple_msg(&msgs.iter().map(|msg| msg).collect::<Vec<_>>());
             tracing::info!("send multiple msg: {:?}", rt);
-            let mut msg = SolMsg::new().unwrap();
-            msg.set_topic("api/v1/test");
+            let msg = SolMsgBuilder::new().with_topic("api/v1/test").build();
             let res = solclient.send_request(&msg, 0);
             tracing::info!("send request msg: {:?}", res);
             tracing::info!("done");

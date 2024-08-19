@@ -94,7 +94,7 @@ fn main() {
             for (i, msg) in msgs.iter_mut().enumerate() {
                 msg.set_topic(format!("api/v1/test/{}", i).as_str());
             }
-            let rt = solclient.send_multiple_msg(&msgs);
+            let rt = solclient.send_multiple_msg(&msgs.iter().map(|msg| msg).collect::<Vec<_>>());
             tracing::info!("send multiple msg: {:?}", rt);
             // #[cfg(feature = "channel")]
             // th_msg.join().unwrap();

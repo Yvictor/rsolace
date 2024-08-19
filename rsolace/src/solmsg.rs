@@ -493,7 +493,7 @@ impl std::fmt::Debug for SolMsg {
 
 impl Drop for SolMsg {
     fn drop(&mut self) {
-        // tracing::debug!("solmsg: {:?} drop call", self.msg_p);
+        tracing::debug!("solmsg: {:?} drop call", self.msg_p);
         unsafe {
             rsolace_sys::solClient_msg_free(&mut self.msg_p);
         }
@@ -502,13 +502,142 @@ impl Drop for SolMsg {
 
 unsafe impl Send for SolMsg {}
 
+#[derive(Debug, Clone)]
+pub struct SolMsgBuilder {
+    delivery_mode: SolClientDeliveryMode,
+    destination: Option<Destination>,
+    reply_to: Option<Destination>,
+    is_reply: Option<bool>,
+    eliding_eligible: Option<bool>,
+    correlation_id: Option<String>,
+    cos: Option<u32>,
+    is_delivery_to_one: Option<bool>,
+    user_props: Vec<(String, String)>,
+    binary_attachment: Option<Vec<u8>>,
+}
+
+impl Default for SolMsgBuilder {
+    fn default() -> Self {
+        SolMsgBuilder {
+            delivery_mode: SolClientDeliveryMode::Direct,
+            destination: None,
+            reply_to: None,
+            is_reply: None,
+            eliding_eligible: None,
+            correlation_id: None,
+            cos: None,
+            is_delivery_to_one: None,
+            user_props: Vec::new(),
+            binary_attachment: None,
+        }
+    }
+}
+
+impl SolMsgBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_delivery_mode(mut self, delivery_mode: SolClientDeliveryMode) -> Self {
+        self.delivery_mode = delivery_mode;
+        self
+    }
+
+    pub fn with_destination(mut self, destination: Destination) -> Self {
+        self.destination = Some(destination);
+        self
+    }
+
+    pub fn with_topic(mut self, topic: &str) -> Self {
+        self.destination = Some(Destination::new(SolClientDestType::Topic, topic));
+        self
+    }
+
+    pub fn with_reply_to(mut self, destination: Destination) -> Self {
+        self.reply_to = Some(destination);
+        self
+    }
+
+    pub fn with_reply_to_topic(mut self, topic: &str) -> Self {
+        self.reply_to = Some(Destination::new(SolClientDestType::Topic, topic));
+        self
+    }
+
+    pub fn as_reply(mut self, is_reply: bool) -> Self {
+        self.is_reply = Some(is_reply);
+        self
+    }
+    pub fn as_eliding_eligible(mut self, is_eliding_eligible: bool) -> Self {
+        self.eliding_eligible = Some(is_eliding_eligible);
+        self
+    }
+
+    pub fn with_correlation_id(mut self, correlation_id: &str) -> Self {
+        self.correlation_id = Some(correlation_id.to_string());
+        self
+    }
+
+    pub fn with_class_of_service(mut self, cos: u32) -> Self {
+        self.cos = Some(cos);
+        self
+    }
+
+    pub fn as_delivery_to_one(mut self, is_delivery_to_one: bool) -> Self {
+        self.is_delivery_to_one = Some(is_delivery_to_one);
+        self
+    }
+
+    pub fn with_user_prop(mut self, key: &str, value: &str) -> Self {
+        self.user_props.push((key.to_string(), value.to_string()));
+        self
+    }
+
+    pub fn with_binary_attachment(mut self, binary_attachment: Vec<u8>) -> Self {
+        self.binary_attachment = Some(binary_attachment);
+        self
+    }
+
+    pub fn build(self) -> SolMsg {
+        let mut m = SolMsg::new().unwrap();
+        m.set_delivery_mode(self.delivery_mode);
+        if let Some(dest) = self.destination {
+            m.set_destination(&dest);
+        }
+        if let Some(reply_to) = self.reply_to {
+            m.set_reply_to(&reply_to);
+        }
+        if let Some(is_reply) = self.is_reply {
+            m.set_as_reply(is_reply);
+        }
+        if let Some(is_eliding_eligible) = self.eliding_eligible {
+            m.set_eliding_eligible(is_eliding_eligible);
+        }
+        if let Some(correlation_id) = self.correlation_id {
+            m.set_correlation_id(&correlation_id);
+        }
+        if let Some(cos) = self.cos {
+            m.set_class_of_service(cos);
+        }
+        if let Some(is_delivery_to_one) = self.is_delivery_to_one {
+            m.set_delivery_to_one(is_delivery_to_one);
+        }
+        for (key, value) in self.user_props {
+            m.set_user_prop(&key, &value, 24);
+        }
+        if let Some(binary_attachment) = self.binary_attachment {
+            m.set_binary_attachment(&binary_attachment);
+        }
+        m
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::ptr::null_mut;
 
     use crate::types::{SolClientDeliveryMode, SolClientDestType, SolClientReturnCode};
 
-    use super::{Destination, SolMsg, SolMsgError};
+    use super::{Destination, SolMsg, SolMsgBuilder, SolMsgError};
 
     use rstest::{fixture, rstest};
 
@@ -654,5 +783,25 @@ mod tests {
         // assert_eq!(rt_code, SolClientReturnCode::Ok)
         let res = solmsg.get_binary_attachment().unwrap();
         assert_eq!(res, data)
+    }
+
+    #[rstest]
+    fn solmsg_builder_workable() {
+        let solmsg = SolMsgBuilder::new()
+            .with_delivery_mode(SolClientDeliveryMode::Direct)
+            .with_destination(Destination::new(SolClientDestType::Topic, "TIC/v1/test"))
+            .as_delivery_to_one(true)
+            .with_correlation_id("R1")
+            .with_class_of_service(1)
+            .with_user_prop("ct", "bytes/msgpack")
+            .with_binary_attachment(vec![0, 1, 2, 3, 4])
+            .build();
+
+        assert!(solmsg.is_delivery_to_one());
+        assert_eq!(solmsg.get_topic().unwrap(), "TIC/v1/test");
+        assert_eq!(solmsg.get_correlation_id().unwrap(), "R1");
+        assert_eq!(solmsg.get_class_of_service().unwrap(), 1);
+        assert_eq!(solmsg.get_user_prop("ct").unwrap(), "bytes/msgpack");
+        assert_eq!(solmsg.get_binary_attachment().unwrap(), vec![0, 1, 2, 3, 4]);
     }
 }
