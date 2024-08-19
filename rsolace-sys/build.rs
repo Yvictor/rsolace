@@ -78,10 +78,10 @@ fn main() {
         println!(
             "cargo:rustc-link-search=native=rsolace-sys/{solclient_folder_name}/lib/{arch_folder}/third-party"
         );
-        println!("cargo:rustc-link-lib=static=libssl");
-        println!("cargo:rustc-link-lib=static=libcrypto");
-        println!("cargo:rustc-link-lib=static=libsolclient");
+        println!("cargo:rustc-link-lib=static=libssl_s");
+        println!("cargo:rustc-link-lib=static=libcrypto_s");
         println!("cargo:rustc-link-lib=static=libsolclient_s");
+        // println!("cargo:rustc-link-lib=static=libsolclient");
     } else {
         println!("cargo:rustc-link-lib=static=ssl");
         println!("cargo:rustc-link-lib=static=crypto");
