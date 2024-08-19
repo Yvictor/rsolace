@@ -41,6 +41,7 @@ jobs:
           pip install maturin
       - name: Build wheels
         run: |
+          ldd --version
           cd pyrsolace
           maturin build --release --out dist --find-interpreter
         # uses: PyO3/maturin-action@v1
