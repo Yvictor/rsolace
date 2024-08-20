@@ -1,4 +1,6 @@
-use super::types::{SolClientDeliveryMode, SolClientDestType, SolClientReturnCode};
+use super::types::{
+    SolClientCacheStatus, SolClientDeliveryMode, SolClientDestType, SolClientReturnCode,
+};
 use enum_primitive::FromPrimitive;
 use std::borrow::Cow;
 use std::ffi::{c_void, CStr, CString};
@@ -218,6 +220,13 @@ impl SolMsg {
         }
     }
 
+    pub fn del_reply_to(&mut self) -> SolClientReturnCode {
+        SolClientReturnCode::from_i32(unsafe {
+            rsolace_sys::solClient_msg_deleteReplyTo(self.msg_p)
+        })
+        .unwrap()
+    }
+
     pub fn set_as_reply(&mut self, is_reply: bool) -> SolClientReturnCode {
         SolClientReturnCode::from_i32(unsafe {
             rsolace_sys::solClient_msg_setAsReplyMsg(self.msg_p, is_reply as u8)
@@ -251,6 +260,13 @@ impl SolMsg {
         let corr_id_c = CString::new(corr_id).unwrap();
         SolClientReturnCode::from_i32(unsafe {
             rsolace_sys::solClient_msg_setCorrelationId(self.msg_p, corr_id_c.as_ptr())
+        })
+        .unwrap()
+    }
+
+    pub fn del_correlation_id(&mut self) -> SolClientReturnCode {
+        SolClientReturnCode::from_i32(unsafe {
+            rsolace_sys::solClient_msg_deleteCorrelationId(self.msg_p)
         })
         .unwrap()
     }
@@ -325,6 +341,47 @@ impl SolMsg {
         Ok(dest.dest)
     }
 
+    pub fn get_sender_id(&self) -> Result<String, SolMsgError> {
+        let mut sender_id: *const std::os::raw::c_char = null_mut();
+        let rt_code = unsafe { rsolace_sys::solClient_msg_getSenderId(self.msg_p, &mut sender_id) };
+        ensure!(
+            rt_code == SolClientReturnCode::Ok as i32,
+            GetAttrSnafu { attr: "sender_id" }
+        );
+        Ok(unsafe { CStr::from_ptr(sender_id) }
+            .to_string_lossy()
+            .to_string())
+    }
+
+    pub fn del_sender_id(&mut self) -> SolClientReturnCode {
+        SolClientReturnCode::from_i32(unsafe {
+            rsolace_sys::solClient_msg_deleteSenderId(self.msg_p)
+        })
+        .unwrap()
+    }
+
+    pub fn set_sender_id(&mut self, sender_id: &str) -> SolClientReturnCode {
+        let sender_id_c = CString::new(sender_id).unwrap();
+        SolClientReturnCode::from_i32(unsafe {
+            rsolace_sys::solClient_msg_setSenderId(self.msg_p, sender_id_c.as_ptr())
+        })
+        .unwrap()
+    }
+
+    pub fn set_sender_ts(&mut self, ts: i64) -> SolClientReturnCode {
+        SolClientReturnCode::from_i32(unsafe {
+            rsolace_sys::solClient_msg_setSenderTimestamp(self.msg_p, ts)
+        })
+        .unwrap()
+    }
+
+    pub fn del_sender_ts(&mut self) -> SolClientReturnCode {
+        SolClientReturnCode::from_i32(unsafe {
+            rsolace_sys::solClient_msg_deleteSenderTimestamp(self.msg_p)
+        })
+        .unwrap()
+    }
+
     pub fn get_sender_dt(&self) -> Result<DateTime<chrono::Utc>, SolMsgError> {
         let mut ts = 0;
         let rt_code = unsafe { rsolace_sys::solClient_msg_getSenderTimestamp(self.msg_p, &mut ts) };
@@ -351,6 +408,98 @@ impl SolMsg {
         );
         Ok(ts)
     }
+
+    pub fn get_recv_ts(&self) -> Result<i64, SolMsgError> {
+        let mut ts = 0;
+        let rt_code = unsafe { rsolace_sys::solClient_msg_getRcvTimestamp(self.msg_p, &mut ts) };
+        ensure!(
+            rt_code == SolClientReturnCode::Ok as i32,
+            GetAttrSnafu { attr: "recv_time" }
+        );
+        Ok(ts)
+    }
+
+    pub fn get_seq(&self) -> Result<i64, SolMsgError> {
+        let mut seq_num = 0;
+        let rt_code =
+            unsafe { rsolace_sys::solClient_msg_getSequenceNumber(self.msg_p, &mut seq_num) };
+        ensure!(
+            rt_code == SolClientReturnCode::Ok as i32,
+            GetAttrSnafu { attr: "seq_num" }
+        );
+        Ok(seq_num)
+    }
+
+    pub fn set_seq(&mut self, seq: u64) -> SolClientReturnCode {
+        SolClientReturnCode::from_i32(unsafe {
+            rsolace_sys::solClient_msg_setSequenceNumber(self.msg_p, seq)
+        })
+        .unwrap()
+    }
+
+    pub fn del_seq(&mut self) -> SolClientReturnCode {
+        SolClientReturnCode::from_i32(unsafe {
+            rsolace_sys::solClient_msg_deleteSequenceNumber(self.msg_p)
+        })
+        .unwrap()
+    }
+
+    pub fn get_msg_type(&self) -> Result<Cow<str>, SolMsgError> {
+        let mut msg_type: *const std::os::raw::c_char = null_mut();
+        let rt_code =
+            unsafe { rsolace_sys::solClient_msg_getApplicationMsgType(self.msg_p, &mut msg_type) };
+        ensure!(
+            rt_code == SolClientReturnCode::Ok as i32,
+            GetAttrSnafu { attr: "msg_type" }
+        );
+        Ok(unsafe { CStr::from_ptr(msg_type) }.to_string_lossy())
+    }
+
+    pub fn set_msg_type(&self, msg_type: &str) -> SolClientReturnCode {
+        let msg_type_c = CString::new(msg_type).unwrap();
+        let rt_code = unsafe {
+            rsolace_sys::solClient_msg_setApplicationMsgType(self.msg_p, msg_type_c.as_ptr())
+        };
+        SolClientReturnCode::from_i32(rt_code).unwrap()
+    }
+
+    pub fn del_msg_type(&mut self) -> SolClientReturnCode {
+        SolClientReturnCode::from_i32(unsafe {
+            rsolace_sys::solClient_msg_deleteApplicationMsgType(self.msg_p)
+        })
+        .unwrap()
+    }
+
+    pub fn get_cache_request_id(&self) -> Result<u64, SolMsgError> {
+        let mut cache_req_id: u64 = 0;
+        let rt_code =
+            unsafe { rsolace_sys::solClient_msg_getCacheRequestId(self.msg_p, &mut cache_req_id) };
+        ensure!(
+            rt_code == SolClientReturnCode::Ok as i32,
+            GetAttrSnafu {
+                attr: "cache_req_id"
+            }
+        );
+        Ok(cache_req_id)
+    }
+
+    pub fn get_cache_status(&self) -> SolClientCacheStatus {
+        let cache_status = unsafe { rsolace_sys::solClient_msg_isCacheMsg(self.msg_p) };
+        SolClientCacheStatus::from_i32(cache_status).unwrap()
+    }
+
+    pub fn is_cache(&self) -> bool {
+        let cache_status = self.get_cache_status();
+        cache_status == SolClientCacheStatus::Cache
+    }
+
+    pub fn is_discard_indication(&self) -> bool {
+        let is_discard_indication =
+            unsafe { rsolace_sys::solClient_msg_isDiscardIndication(self.msg_p) };
+        is_discard_indication == 1
+    }
+
+    // TODO add reset setter getter delete
 
     pub fn get_user_prop(&self, key: &str) -> Result<String, SolMsgError> {
         match self.user_prop_p {
@@ -635,7 +784,9 @@ impl SolMsgBuilder {
 mod tests {
     use std::ptr::null_mut;
 
-    use crate::types::{SolClientDeliveryMode, SolClientDestType, SolClientReturnCode};
+    use crate::types::{
+        SolClientCacheStatus, SolClientDeliveryMode, SolClientDestType, SolClientReturnCode,
+    };
 
     use super::{Destination, SolMsg, SolMsgBuilder, SolMsgError};
 
@@ -643,7 +794,8 @@ mod tests {
 
     #[fixture]
     pub fn solmsg() -> SolMsg {
-        SolMsg::new().unwrap()
+        // SolMsg::new().unwrap()
+        SolMsgBuilder::new().build()
     }
 
     #[test]
@@ -697,6 +849,8 @@ mod tests {
         let dest = Destination::new(SolClientDestType::Topic, "TIC/v1/test");
         solmsg.set_reply_to(&dest);
         assert_eq!(solmsg.get_reply_to().unwrap(), dest);
+        solmsg.del_reply_to();
+        assert!(solmsg.get_reply_to().is_err());
     }
 
     #[rstest]
@@ -720,6 +874,44 @@ mod tests {
         let corr_id = "R1";
         solmsg.set_correlation_id(corr_id);
         assert_eq!(solmsg.get_correlation_id().unwrap(), corr_id);
+        solmsg.del_correlation_id();
+        assert!(solmsg.get_correlation_id().is_err());
+    }
+
+    #[rstest]
+    fn solmsg_sender_id_workable(mut solmsg: SolMsg) {
+        let sender = "R1";
+        solmsg.set_sender_id(sender);
+        assert_eq!(solmsg.get_sender_id().unwrap(), sender);
+        solmsg.del_sender_id();
+        assert!(solmsg.get_sender_id().is_err());
+    }
+
+    #[rstest]
+    fn solmsg_sender_ts_workable(mut solmsg: SolMsg) {
+        let sender_ts = 1234567890;
+        solmsg.set_sender_ts(sender_ts);
+        assert_eq!(solmsg.get_sender_ts().unwrap(), sender_ts);
+        solmsg.del_sender_ts();
+        assert!(solmsg.get_sender_ts().is_err());
+    }
+
+    #[rstest]
+    fn solmsg_seq_workable(mut solmsg: SolMsg) {
+        let seq = 1234567890;
+        solmsg.set_seq(seq);
+        assert_eq!(solmsg.get_seq().unwrap(), seq.try_into().unwrap());
+        solmsg.del_seq();
+        assert!(solmsg.get_seq().is_err());
+    }
+
+    #[rstest]
+    fn solmsg_msg_type_workable(mut solmsg: SolMsg) {
+        let msg_type = "msgpack";
+        solmsg.set_msg_type(msg_type);
+        assert_eq!(solmsg.get_msg_type().unwrap(), msg_type);
+        solmsg.del_msg_type();
+        assert!(solmsg.get_msg_type().is_err());
     }
 
     #[rstest]
@@ -732,6 +924,14 @@ mod tests {
     }
 
     #[rstest]
+    fn solmsg_cache_status_workable(solmsg: SolMsg) {
+        let cache_status = solmsg.get_cache_status();
+        assert_eq!(cache_status, SolClientCacheStatus::Invalid);
+        let is_cache = solmsg.is_cache();
+        assert_eq!(is_cache, false);
+    }
+
+    #[rstest]
     #[case(1)]
     #[case(2)]
     #[case(3)]
@@ -740,6 +940,7 @@ mod tests {
         assert_eq!(solmsg.get_class_of_service().unwrap(), cos);
     }
 
+    #[rstest]
     #[rstest]
     fn solmsg_user_prop_workable(mut solmsg: SolMsg) {
         let key = "ct";

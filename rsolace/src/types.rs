@@ -149,6 +149,17 @@ enum_from_primitive! {
 
 enum_from_primitive! {
     #[derive(Debug, Copy, Clone, PartialEq)]
+    #[repr(i32)]
+    pub enum SolClientCacheStatus {
+        Invalid = rsolace_sys::solClient_cacheStatus_SOLCLIENT_CACHE_INVALID_MESSAGE,
+        Live = rsolace_sys::solClient_cacheStatus_SOLCLIENT_CACHE_LIVE_MESSAGE,
+        Cache = rsolace_sys::solClient_cacheStatus_SOLCLIENT_CACHE_MESSAGE,
+        Suspect = rsolace_sys::solClient_cacheStatus_SOLCLIENT_CACHE_SUSPECT_MESSAGE,
+    }
+}
+
+enum_from_primitive! {
+    #[derive(Debug, Copy, Clone, PartialEq)]
     #[repr(u32)]
     pub enum SolClientDeliveryMode {
         Direct = rsolace_sys::SOLCLIENT_DELIVERY_MODE_DIRECT,
