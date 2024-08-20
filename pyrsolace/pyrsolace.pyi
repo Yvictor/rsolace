@@ -47,6 +47,12 @@ class CacheRequestFlag(Enum):
     LiveDataFlowThru = 8
     NowaitReply = 16
 
+class CacheStatus(Enum):
+    Invalid = -1
+    Live = 0
+    Cache = 1
+    Suspect = 2
+
 def init_tracing_logger(
     level: LogLevel,
     display_line_number: bool = False,
@@ -81,7 +87,15 @@ class Msg:
     is_p2p: bool
     cos: int
     is_delivery_to_one: bool
+    is_discard_indication: bool
+    is_cache: bool
+    cache_status: CacheStatus
+    cache_request_id: Optional[int]
+    sender_id: Optional[str]
     sender_timestamp: Optional[int]
+    recv_timestamp: Optional[int]
+    seq: Optional[int]
+    msg_type: Optional[str]
 
     def __init__(
         self,

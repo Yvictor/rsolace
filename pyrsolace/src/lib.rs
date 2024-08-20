@@ -13,7 +13,7 @@ use rsolace::solclient::{SessionProps, SolClient, SolClientError};
 use rsolace::solevent::SolEvent;
 use rsolace::solmsg::{Destination, SolMsg};
 use rsolace::solcache::CacheSessionProps;
-use rsolace::types::{SolClientDeliveryMode, SolClientCacheRequestFlags, SolClientDestType, SolClientReturnCode, SolClientSessionEvent, SolClientSubscribeFlags};
+use rsolace::types::{SolClientDeliveryMode, SolClientCacheRequestFlags, SolClientDestType, SolClientReturnCode, SolClientSessionEvent, SolClientSubscribeFlags, SolClientCacheStatus};
 
 use crossbeam::atomic::AtomicCell;
 use crossbeam_channel::{Receiver, RecvError};
@@ -77,6 +77,54 @@ impl From<SolClientError> for PySolClientError {
     }
 }
 
+#[pyclass]
+#[derive(Debug, Clone, Copy)]
+struct CacheStatus(SolClientCacheStatus);
+
+#[pymethods]
+impl CacheStatus {
+    #[classattr]
+    #[allow(non_snake_case)] 
+    fn Invalid() -> Self {
+        CacheStatus(SolClientCacheStatus::Invalid)
+    }
+
+    #[classattr]
+    #[allow(non_snake_case)] 
+    fn Live() -> Self {
+        CacheStatus(SolClientCacheStatus::Live)
+    }
+
+    #[classattr]
+    #[allow(non_snake_case)] 
+    fn Cache() -> Self {
+        CacheStatus(SolClientCacheStatus::Cache)
+    }
+
+    #[classattr]
+    #[allow(non_snake_case)] 
+    fn Suspect() -> Self {
+        CacheStatus(SolClientCacheStatus::Suspect)
+    }
+
+    #[getter]
+    fn value(&self) -> i32 {
+        self.0 as i32
+    }
+
+    fn __str__(&self) -> String {
+        format!("{:?}", self.0)
+    }
+
+    fn __repr__(&self) -> String {
+        format!("CacheStatus.{:?}", self.0)
+    }
+
+    #[getter]
+    fn name(&self) -> String {
+        self.__str__()
+    }
+}
 
 #[pyclass]
 #[derive(Debug, Clone, Copy)]
@@ -701,6 +749,68 @@ impl Msg {
         self.0.get_sender_ts().ok()
     }
 
+    #[setter(sender_timestamp)]
+    fn set_sender_time(&mut self, sender_time: i64) {
+        self.0.set_sender_ts(sender_time);
+    }
+
+    #[getter(recv_timestamp)]
+    fn get_recv_time(&self) -> Option<i64> {
+        self.0.get_recv_ts().ok()
+    }
+
+    #[getter(is_cache)]
+    fn is_cache(&self) -> bool {
+        self.0.is_cache()
+    }
+
+    #[getter(cache_status)]
+    fn get_cache_status(&self) -> CacheStatus {
+        CacheStatus(self.0.get_cache_status())
+    }
+    
+
+    #[getter(sender_id)]
+    fn get_sender_id(&self) -> Option<String> {
+        self.0.get_sender_id().ok()
+    }
+
+    #[setter(sender_id)]
+    fn set_sender_id(&mut self, sender_id: &str) {
+        self.0.set_sender_id(sender_id);
+    }
+
+
+    #[getter(seq)]
+    fn get_seq(&self) -> Option<i64> {
+        self.0.get_seq().ok()
+    }
+
+    #[setter(seq)]
+    fn set_seq(&mut self, seq: u64) {
+        self.0.set_seq(seq);
+    }
+
+    #[getter(msg_type)]
+    fn get_msg_type(&self) -> Option<Cow<str>> {
+        self.0.get_msg_type().ok()
+    }
+
+    #[setter(msg_type)]
+    fn set_msg_type(&mut self, msg_type: &str) {
+        self.0.set_msg_type(msg_type);
+    }
+
+    #[getter(cache_request_id)]
+    fn get_cache_request_id(&self) -> Option<u64> {
+        self.0.get_cache_request_id().ok()
+    }
+
+    #[getter(is_discard_indication)]
+    fn get_is_discard_indication(&self) -> bool {
+        self.0.is_discard_indication()
+    }
+
     
     fn get_user_prop(&self, key: &str) -> String {
         self.0.get_user_prop(key).unwrap_or("".into())
@@ -1141,6 +1251,8 @@ fn pyrsolace(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<LogLevel>()?;
     m.add_class::<ReturnCode>()?;
     m.add_class::<SubscribeFlag>()?;
+    m.add_class::<CacheStatus>()?;
+    m.add_class::<CacheRequestFlag>()?;
     m.add_function(wrap_pyfunction!(init_tracing_logger, m)?)?;
     Ok(())
 }
