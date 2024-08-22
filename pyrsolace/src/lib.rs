@@ -3,6 +3,7 @@ use std::borrow::Cow;
 use std::time::Duration;
 use std::thread::JoinHandle;
 
+use pyo3::basic::CompareOp;
 // use chrono::DateTime;
 use pyo3::prelude::*;
 // use pyo3::types::PyFunction;
@@ -124,6 +125,18 @@ impl CacheStatus {
     fn name(&self) -> String {
         self.__str__()
     }
+
+    fn __richcmp__(&self, other: &Self, op: CompareOp) -> bool {
+        match op {
+            CompareOp::Lt => self.0 < other.0,
+            CompareOp::Le => self.0 <= other.0,
+            CompareOp::Eq => self.0 == other.0,
+            CompareOp::Ne => self.0 != other.0,
+            CompareOp::Ge => self.0 >= other.0,
+            CompareOp::Gt => self.0 > other.0,
+        }
+    }
+
 }
 
 #[pyclass]
@@ -162,9 +175,6 @@ impl CacheRequestFlag {
         CacheRequestFlag(SolClientCacheRequestFlags::NowaitReply)
     }
 
-
-
-
     #[getter]
     fn value(&self) -> u32 {
         self.0 as u32
@@ -183,6 +193,16 @@ impl CacheRequestFlag {
         self.__str__()
     }
 
+    fn __richcmp__(&self, other: &Self, op: CompareOp) -> bool {
+        match op {
+            CompareOp::Lt => self.0 < other.0,
+            CompareOp::Le => self.0 <= other.0,
+            CompareOp::Eq => self.0 == other.0,
+            CompareOp::Ne => self.0 != other.0,
+            CompareOp::Ge => self.0 >= other.0,
+            CompareOp::Gt => self.0 > other.0,
+        }
+    }
 }
 
 
@@ -232,6 +252,16 @@ impl SubscribeFlag {
         self.__str__()
     }
 
+    fn __richcmp__(&self, other: &Self, op: CompareOp) -> bool {
+        match op {
+            CompareOp::Lt => self.0 < other.0,
+            CompareOp::Le => self.0 <= other.0,
+            CompareOp::Eq => self.0 == other.0,
+            CompareOp::Ne => self.0 != other.0,
+            CompareOp::Ge => self.0 >= other.0,
+            CompareOp::Gt => self.0 > other.0,
+        }
+    }
 }
 
 
@@ -309,8 +339,6 @@ impl ReturnCode {
         ReturnCode(SolClientReturnCode::Fail)
     }
 
-
-
     #[getter]
     fn value(&self) -> u32 {
         self.0 as u32
@@ -328,6 +356,18 @@ impl ReturnCode {
     fn name(&self) -> String {
         self.__str__()
     }
+
+    fn __richcmp__(&self, other: &Self, op: CompareOp) -> bool {
+        match op {
+            CompareOp::Lt => self.0 < other.0,
+            CompareOp::Le => self.0 <= other.0,
+            CompareOp::Eq => self.0 == other.0,
+            CompareOp::Ne => self.0 != other.0,
+            CompareOp::Ge => self.0 >= other.0,
+            CompareOp::Gt => self.0 > other.0,
+        }
+    }
+
 }
 
 
@@ -373,6 +413,17 @@ impl LogLevel {
     #[getter]
     fn name(&self) -> String {
         self.__str__()
+    }
+
+    fn __richcmp__(&self, other: &Self, op: CompareOp) -> bool {
+        match op {
+            CompareOp::Lt => self.0 < other.0,
+            CompareOp::Le => self.0 <= other.0,
+            CompareOp::Eq => self.0 == other.0,
+            CompareOp::Ne => self.0 != other.0,
+            CompareOp::Ge => self.0 >= other.0,
+            CompareOp::Gt => self.0 > other.0,
+        }
     }
 }
 
@@ -461,6 +512,18 @@ impl DeliveryMode {
     fn name(&self) -> String {
         self.__str__()
     }
+
+    fn __richcmp__(&self, other: &Self, op: CompareOp) -> bool {
+        match op {
+            CompareOp::Lt => self.0 < other.0,
+            CompareOp::Le => self.0 <= other.0,
+            CompareOp::Eq => self.0 == other.0,
+            CompareOp::Ne => self.0 != other.0,
+            CompareOp::Ge => self.0 >= other.0,
+            CompareOp::Gt => self.0 > other.0,
+        }
+    }
+
 }
 
 #[pyclass]
@@ -515,6 +578,17 @@ impl DestType {
     #[allow(non_snake_case)] 
     fn QueueTemp() -> Self {
         DestType(SolClientDestType::QueueTemp)
+    }
+
+    fn __richcmp__(&self, other: &Self, op: CompareOp) -> bool {
+        match op {
+            CompareOp::Lt => self.0 < other.0,
+            CompareOp::Le => self.0 <= other.0,
+            CompareOp::Eq => self.0 == other.0,
+            CompareOp::Ne => self.0 != other.0,
+            CompareOp::Ge => self.0 >= other.0,
+            CompareOp::Gt => self.0 > other.0,
+        }
     }
 }
 
@@ -669,6 +743,18 @@ impl SessionEvent {
     fn name(&self) -> String {
         self.__str__()
     }
+    
+    fn __richcmp__(&self, other: &Self, op: CompareOp) -> bool {
+        match op {
+            CompareOp::Lt => self.0 < other.0,
+            CompareOp::Le => self.0 <= other.0,
+            CompareOp::Eq => self.0 == other.0,
+            CompareOp::Ne => self.0 != other.0,
+            CompareOp::Ge => self.0 >= other.0,
+            CompareOp::Gt => self.0 > other.0,
+        }
+    }
+
 }
 
 #[pyclass]
@@ -682,6 +768,11 @@ impl Event {
 
 #[pymethods]
 impl Event {
+    // #[new]
+    // fn __new__() -> Self {
+    //     let event = SolEvent::new(SolClientSessionEvent::UpNotice, 0, "test".into());
+    //     Event(event)
+    // }
 
     fn get_session_event_string(&self) -> String {
         self.0.get_session_event_string()

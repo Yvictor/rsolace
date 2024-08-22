@@ -2,7 +2,7 @@ use enum_primitive::*;
 
 #[cfg(target_os = "windows")]
 enum_from_primitive! {
-    #[derive(Debug, Copy, Clone, PartialEq)]
+    #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
     #[repr(i32)]
     pub enum SolClientLogLevel {
         Emergency = rsolace_sys::solClient_log_level_SOLCLIENT_LOG_EMERGENCY,
@@ -18,7 +18,7 @@ enum_from_primitive! {
 
 #[cfg(not(target_os = "windows"))]
 enum_from_primitive! {
-    #[derive(Debug, Copy, Clone, PartialEq)]
+    #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
     #[repr(u32)]
     pub enum SolClientLogLevel {
         Emergency = rsolace_sys::solClient_log_level_SOLCLIENT_LOG_EMERGENCY,
@@ -33,7 +33,7 @@ enum_from_primitive! {
 }
 
 enum_from_primitive! {
-    #[derive(Debug, Copy, Clone, PartialEq)]
+    #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
     #[repr(i32)]
     pub enum SolClientReturnCode {
         Ok = rsolace_sys::solClient_returnCode_SOLCLIENT_OK,
@@ -51,7 +51,7 @@ enum_from_primitive! {
 
 #[cfg(target_os = "windows")]
 enum_from_primitive! {
-    #[derive(Debug, Copy, Clone, PartialEq)]
+    #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
     #[repr(i32)]
     pub enum SolClientSessionEvent {
         UpNotice = rsolace_sys::solClient_session_event_SOLCLIENT_SESSION_EVENT_UP_NOTICE,
@@ -83,7 +83,7 @@ enum_from_primitive! {
 
 #[cfg(not(target_os = "windows"))]
 enum_from_primitive! {
-    #[derive(Debug, Copy, Clone, PartialEq)]
+    #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
     #[repr(u32)]
     pub enum SolClientSessionEvent {
         UpNotice = rsolace_sys::solClient_session_event_SOLCLIENT_SESSION_EVENT_UP_NOTICE,
@@ -126,7 +126,7 @@ impl From<i32> for SolClientSessionEvent {
 }
 
 enum_from_primitive! {
-    #[derive(Debug, Copy, Clone, PartialEq)]
+    #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
     #[repr(u32)]
     pub enum SolClientSubscribeFlags {
         WaitForConfirm = rsolace_sys::SOLCLIENT_SUBSCRIBE_FLAGS_WAITFORCONFIRM,
@@ -136,7 +136,7 @@ enum_from_primitive! {
 }
 
 enum_from_primitive! {
-    #[derive(Debug, Copy, Clone, PartialEq)]
+    #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
     #[repr(u32)]
     pub enum SolClientCacheRequestFlags {
         LiveDataFlowThru = rsolace_sys::SOLCLIENT_CACHEREQUEST_FLAGS_LIVEDATA_FLOWTHRU,
@@ -148,7 +148,7 @@ enum_from_primitive! {
 }
 
 enum_from_primitive! {
-    #[derive(Debug, Copy, Clone, PartialEq)]
+    #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
     #[repr(i32)]
     pub enum SolClientCacheStatus {
         Invalid = rsolace_sys::solClient_cacheStatus_SOLCLIENT_CACHE_INVALID_MESSAGE,
@@ -159,7 +159,7 @@ enum_from_primitive! {
 }
 
 enum_from_primitive! {
-    #[derive(Debug, Copy, Clone, PartialEq)]
+    #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
     #[repr(u32)]
     pub enum SolClientDeliveryMode {
         Direct = rsolace_sys::SOLCLIENT_DELIVERY_MODE_DIRECT,
@@ -169,7 +169,7 @@ enum_from_primitive! {
 }
 
 enum_from_primitive! {
-    #[derive(Debug, Copy, Clone, PartialEq)]
+    #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
     #[repr(i32)]
     pub enum SolClientDestType {
         Null = rsolace_sys::solClient_destinationType_SOLCLIENT_NULL_DESTINATION,
@@ -182,7 +182,7 @@ enum_from_primitive! {
 
 #[cfg(target_os = "windows")]
 enum_from_primitive! {
-    #[derive(Debug, Copy, Clone, PartialEq)]
+    #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
     #[repr(i32)]
     pub enum SolClientSubCode {
         Ok = rsolace_sys::solClient_subCode_SOLCLIENT_SUBCODE_OK,
@@ -351,7 +351,7 @@ enum_from_primitive! {
 
 #[cfg(not(target_os = "windows"))]
 enum_from_primitive! {
-    #[derive(Debug, Copy, Clone, PartialEq)]
+    #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
     #[repr(u32)]
     pub enum SolClientSubCode {
         Ok = rsolace_sys::solClient_subCode_SOLCLIENT_SUBCODE_OK,
