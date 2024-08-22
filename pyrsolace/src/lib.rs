@@ -526,6 +526,132 @@ struct SessionEvent(SolClientSessionEvent);
 
 #[pymethods]
 impl SessionEvent {
+    #[classattr]
+    #[allow(non_snake_case)] 
+    fn UpNotice() -> Self {
+        SessionEvent(SolClientSessionEvent::UpNotice)
+    }
+
+    #[classattr]
+    #[allow(non_snake_case)] 
+    fn DownError() -> Self {
+        SessionEvent(SolClientSessionEvent::DownError)
+    }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn ConnectFailedError() -> Self {
+        SessionEvent(SolClientSessionEvent::ConnectFailedError)
+    }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn RejectedMsgError() -> Self {
+        SessionEvent(SolClientSessionEvent::RejectedMsgError)
+    }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn SubscriptionError() -> Self {
+        SessionEvent(SolClientSessionEvent::SubscriptionError)
+    }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn RxMsgTooBigError() -> Self {
+        SessionEvent(SolClientSessionEvent::RxMsgTooBigError)
+    }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn Acknowledgement() -> Self {
+        SessionEvent(SolClientSessionEvent::Acknowledgement)
+    }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn AssuredPublishingUp() -> Self {
+        SessionEvent(SolClientSessionEvent::AssuredPublishingUp)
+    }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn AssuredConnectFailed() -> Self {
+        SessionEvent(SolClientSessionEvent::AssuredConnectFailed)
+    }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn TeUnsubscribeError() -> Self {
+        SessionEvent(SolClientSessionEvent::TeUnsubscribeError)
+    }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn TeUnsubscribeOk() -> Self {
+        SessionEvent(SolClientSessionEvent::TeUnsubscribeOk)
+    }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn CanSend() -> Self {
+        SessionEvent(SolClientSessionEvent::CanSend)
+    }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn ReconnectingNotice() -> Self {
+        SessionEvent(SolClientSessionEvent::ReconnectingNotice)
+    }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn ReconnectedNotice() -> Self {
+        SessionEvent(SolClientSessionEvent::ReconnectedNotice)
+    }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn ProvisionError() -> Self {
+        SessionEvent(SolClientSessionEvent::ProvisionError)
+    }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn ProvisionOk() -> Self {
+        SessionEvent(SolClientSessionEvent::ProvisionOk)
+    }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn SubscriptionOk() -> Self {
+        SessionEvent(SolClientSessionEvent::SubscriptionOk)
+    }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn VirtualRouterNameChanged() -> Self {
+        SessionEvent(SolClientSessionEvent::VirtualRouterNameChanged)
+    }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn ModifyPropOk() -> Self {
+        SessionEvent(SolClientSessionEvent::ModifyPropOk)
+    }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn ModifyPropFail() -> Self {
+        SessionEvent(SolClientSessionEvent::ModifyPropFail)
+    }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn RepublishUnackedMessages() -> Self {
+        SessionEvent(SolClientSessionEvent::RepublishUnackedMessages)
+    }
+
     fn __repr__(&self) -> String {
         format!("PySolClientSessionEvent.{:?}", self.0)
     }
@@ -1188,6 +1314,7 @@ impl Client {
         let m = msgs.iter().map(|msg| &msg.0).collect::<Vec<_>>();
         ReturnCode(self.solclient.send_multiple_msg(&m))
     }
+
 
     #[pyo3(signature = (topic, request_id, cache_name, max_msgs=0, max_age=0, request_reply_timeout=10000, flag=CacheRequestFlag(SolClientCacheRequestFlags::LiveDataFlowThru)))]
     fn send_cache_request(&self, topic: &str, request_id: u64, cache_name: &str, max_msgs: u32, max_age: u32, request_reply_timeout: u32, flag: CacheRequestFlag) -> Result<(), PySolClientError> {

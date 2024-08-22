@@ -34,6 +34,24 @@ class SessionEvent(Enum):
     UpNotice = 0
     DownError = 1
     ConnectFailedError = 2
+    RejectedMsgError = 3
+    SubscriptionError = 4
+    RxMsgTooBigError = 5
+    Acknowledgement = 6
+    AssuredPublishingUp = 7
+    AssuredConnectFailed = 8
+    TeUnsubscribeError = 9
+    TeUnsubscribeOk = 10
+    CanSend = 11
+    ReconnectingNotice = 12
+    ReconnectedNotice = 13
+    ProvisionError = 14
+    ProvisionOk = 15
+    SubscriptionOk = 16
+    VirtualRouterNameChanged = 17
+    ModifyPropOk = 18
+    ModifyPropFail = 19
+    RepublishUnackedMessages = 20
 
 class SubscribeFlag(Enum):
     WaitForConfirm = 2
