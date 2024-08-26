@@ -88,6 +88,11 @@ impl SolMsg {
         })
     }
 
+    pub fn reset(&mut self) -> SolClientReturnCode {
+        let rt_code = unsafe { rsolace_sys::solClient_msg_reset(self.msg_p) };
+        SolClientReturnCode::from_i32(rt_code).unwrap()
+    }
+
     /// # Safety
     ///
     /// This function should not be called by check msg_ptr is valid?.

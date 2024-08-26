@@ -850,6 +850,10 @@ impl Msg {
         Ok(Msg(msg))
     }
 
+    fn reset(&mut self) -> ReturnCode {
+        ReturnCode(self.0.reset())
+    }
+
     #[setter(delivery_mode)]
     fn set_delivery_mode(&mut self, delivery_mode: DeliveryMode) {
         self.0.set_delivery_mode(delivery_mode.0);
