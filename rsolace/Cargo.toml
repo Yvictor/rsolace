@@ -1,6 +1,6 @@
 [package]
 name = "rsolace"
-version = "0.1.9"
+version = "0.2.0"
 edition = "2021"
 description = "Solace bindings for the Rust"
 keywords = ["solace"]
@@ -16,7 +16,7 @@ crossbeam-channel = { version = "0.5.8", optional = true}
 dashmap = "5.4.0"
 enum_primitive = "0.1.1"
 failure = "0.1.8"
-rsolace-sys = { version = "0.1.8", path = "../rsolace-sys" }
+rsolace-sys = { version = "0.2.0", path = "../rsolace-sys" }
 snafu = { version = "0.7.4", features = ["rust_1_46"]}
 tokio = { version = "1.28.2", optional = true}
 tracing = "0.1"
