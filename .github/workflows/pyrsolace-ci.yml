@@ -114,7 +114,7 @@ jobs:
     runs-on: windows-latest
     strategy:
       matrix:
-        target: [x64]
+        target: [x64, x86]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -133,7 +133,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         env:
           LIBCLANG_PATH: C:\Program Files\LLVM\bin
-          BINDGEN_EXTRA_CLANG_ARGS: "--target=x86_64-pc-windows-msvc -fms-compatibility-version=19"
+          BINDGEN_EXTRA_CLANG_ARGS: "${{ matrix.target == 'x64' && '--target=x86_64-pc-windows-msvc' || '--target=i686-pc-windows-msvc' }} -fms-compatibility-version=19"
           CC: clang
           CXX: clang++
         with:
