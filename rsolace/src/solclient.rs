@@ -17,9 +17,10 @@ use std::os::raw::c_char;
 use std::ptr::{null, null_mut};
 // TODO fn pointer to struct
 #[cfg(feature = "channel")]
-use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
-#[cfg(feature = "tokio")]
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use kanal::{bounded, unbounded, Receiver, Sender};
+// Async kanal imports for future async support
+#[cfg(all(feature = "channel", feature = "tokio"))]
+use kanal::{bounded_async, AsyncReceiver, AsyncSender};
 // #[cfg_attr(feature = "tokio", derive(Debug, Clone))]
 
 #[derive(Debug, Snafu, PartialEq)]
@@ -309,6 +310,8 @@ pub struct SolClient {
     event_receiver: Receiver<SolEvent>,
     #[cfg(feature = "channel")]
     request_reply_map: DashMap<String, Sender<SolMsg>>,
+    #[cfg(all(feature = "channel", feature = "tokio"))]
+    async_request_reply_map: DashMap<String, AsyncSender<SolMsg>>,
 }
 
 impl Default for SolClient {
@@ -388,6 +391,8 @@ impl SolClient {
                 event_receiver: envent_receiver,
                 #[cfg(feature = "channel")]
                 request_reply_map: DashMap::new(),
+                #[cfg(all(feature = "channel", feature = "tokio"))]
+                async_request_reply_map: DashMap::new(),
             })
         }
     }
@@ -420,12 +425,29 @@ impl SolClient {
                             if let Some((_corrid, sender)) =
                                 self_ref.request_reply_map.remove(&corr_id)
                             {
-                                match sender.send(msg) {
-                                    Ok(_) => {
-                                        tracing::debug!("resp sended corrid: {}", corr_id);
+                                {
+                                    match sender.send(msg) {
+                                        Ok(_) => {
+                                            tracing::debug!("resp sended corrid: {}", corr_id);
+                                        }
+                                        Err(e) => {
+                                            tracing::error!("send msg to channel error: {}", e);
+                                        }
                                     }
-                                    Err(e) => {
-                                        tracing::error!("send msg to channel error: {}", e);
+                                }
+                            } else if let Some((_corrid, sender)) =
+                                self_ref.async_request_reply_map.remove(&corr_id)
+                            {
+                                {
+                                    // For async sender, we need to use try_send (non-blocking)
+                                    // since this callback cannot be async
+                                    match sender.try_send(msg) {
+                                        Ok(_) => {
+                                            tracing::debug!("resp sended corrid: {}", corr_id);
+                                        }
+                                        Err(e) => {
+                                            tracing::error!("send msg to channel error: {:?}", e);
+                                        }
                                     }
                                 }
                             }
@@ -580,6 +602,27 @@ impl SolClient {
     #[cfg(feature = "channel")]
     pub fn get_event_receiver(&self) -> Receiver<SolEvent> {
         self.event_receiver.clone()
+    }
+
+    // Async channel support with kanal
+    #[cfg(all(feature = "channel", feature = "tokio"))]
+    pub fn get_async_msg_receiver(&self) -> AsyncReceiver<SolMsg> {
+        self.msg_receiver.as_async().clone()
+    }
+
+    #[cfg(all(feature = "channel", feature = "tokio"))]
+    pub fn get_async_request_receiver(&self) -> AsyncReceiver<SolMsg> {
+        self.request_receiver.as_async().clone()
+    }
+
+    #[cfg(all(feature = "channel", feature = "tokio"))]
+    pub fn get_async_p2p_receiver(&self) -> AsyncReceiver<SolMsg> {
+        self.p2p_receiver.as_async().clone()
+    }
+
+    #[cfg(all(feature = "channel", feature = "tokio"))]
+    pub fn get_async_event_receiver(&self) -> AsyncReceiver<SolEvent> {
+        self.event_receiver.as_async().clone()
     }
 
     pub fn subscribe(&self, topic: &str) -> SolClientReturnCode {
@@ -746,8 +789,50 @@ impl SolClient {
         Ok(r)
     }
 
-    #[cfg(feature = "tokio")]
-    pub async fn send_request() {}
+    #[cfg(all(feature = "channel", feature = "tokio"))]
+    pub fn send_request_async_receiver(
+        &mut self,
+        msg: &SolMsg,
+    ) -> Result<AsyncReceiver<SolMsg>, SolClientError> {
+        // For async implementation, we'll use kanal's async bounded channel
+        let (s, r) = bounded_async(1);
+
+        let corrid = msg.get_correlation_id().unwrap_or("c0".into());
+        // Store async sender directly in the map
+        self.async_request_reply_map.insert(corrid, s);
+        let (rt_code, _) = self.send_request_unsafe_part(msg, 0);
+        ensure!(
+            rt_code == SolClientReturnCode::InProgress,
+            SendRequestSnafu {
+                topic: msg.get_topic().context(SolMsgSnafu)?,
+                code: rt_code,
+                error: self.get_last_error_info().unwrap(),
+            }
+        );
+        Ok(r)
+    }
+
+    #[cfg(all(feature = "channel", feature = "tokio"))]
+    pub async fn send_request_async(&mut self, msg: &SolMsg) -> Result<SolMsg, SolClientError> {
+        let topic = msg.get_topic().context(SolMsgSnafu)?;
+        let receiver = self.send_request_async_receiver(msg)?;
+        receiver
+            .recv()
+            .await
+            .map_err(|_| SolClientError::SendRequest {
+                topic: topic,
+                code: SolClientReturnCode::Fail,
+                error: self.get_last_error_info().unwrap_or_else(|| {
+                    use crate::types::{ErrorInfo, SolClientSubCodeOrRaw};
+                    ErrorInfo {
+                        sub_code: SolClientSubCodeOrRaw::Raw(
+                            SolClientReturnCode::Fail as rsolace_sys::solClient_subCode,
+                        ),
+                        error_str: "Response timeout or channel closed".to_string(),
+                    }
+                }),
+            })
+    }
 
     pub fn send_cache_request(
         &self,

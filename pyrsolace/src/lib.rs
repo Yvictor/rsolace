@@ -1,3 +1,5 @@
+#![allow(non_local_definitions)]
+
 use std::sync::Arc;
 use std::borrow::Cow;
 use std::time::Duration;
@@ -9,6 +11,7 @@ use pyo3::prelude::*;
 // use pyo3::types::PyFunction;
 use pyo3::types::PyTuple;
 use pyo3::exceptions::PyException;
+use pyo3_asyncio::tokio::future_into_py;
 
 use rsolace::solclient::{SessionProps, SolClient, SolClientError};
 use rsolace::solevent::SolEvent;
@@ -17,7 +20,7 @@ use rsolace::solcache::CacheSessionProps;
 use rsolace::types::{SolClientDeliveryMode, SolClientCacheRequestFlags, SolClientDestType, SolClientReturnCode, SolClientSessionEvent, SolClientSubscribeFlags, SolClientCacheStatus};
 
 use crossbeam::atomic::AtomicCell;
-use crossbeam_channel::{Receiver, RecvError};
+use kanal::{Receiver, ReceiveError, AsyncReceiver};
 // use rayon::{ThreadPool, ThreadPoolBuilder};
 // use once_cell::sync::Lazy;
 
@@ -34,7 +37,7 @@ use crossbeam_channel::{Receiver, RecvError};
 //     .build().expect("could not build thread pool")
 // });
 
-struct ReceiverError(RecvError);
+struct ReceiverError(ReceiveError);
 
 impl From<ReceiverError> for PyErr {
     fn from(error: ReceiverError) -> Self {
@@ -42,8 +45,8 @@ impl From<ReceiverError> for PyErr {
     }
 }
 
-impl From<RecvError> for ReceiverError {
-    fn from(error: RecvError) -> Self {
+impl From<ReceiveError> for ReceiverError {
+    fn from(error: ReceiveError) -> Self {
         ReceiverError(error)
     }
 }
@@ -57,8 +60,30 @@ impl MsgReceiver {
         format!("MsgReceiver({:?})", self.0)
     }
 
-    fn recv(&self) -> PyResult<Msg> {
-        self.0.recv().map_err(|e| ReceiverError(e).into()).map(Msg::new)
+    fn recv(&self, py: Python) -> PyResult<Msg> {
+        py.allow_threads(|| {
+            self.0.recv().map_err(|e| ReceiverError(e).into()).map(Msg::new)
+        })
+    }
+}
+
+#[pyclass]
+struct AsyncMsgReceiver(AsyncReceiver<SolMsg>);
+
+#[pymethods]
+impl AsyncMsgReceiver {
+    fn __repr__(&self) -> String {
+        format!("AsyncMsgReceiver({:?})", self.0)
+    }
+
+    fn recv<'p>(&self, py: Python<'p>) -> PyResult<&'p PyAny> {
+        let receiver = self.0.clone();
+        future_into_py(py, async move {
+            let msg = receiver.recv().await.map_err(|e| {
+                PyException::new_err(format!("AsyncReceiveError: {:?}", e))
+            })?;
+            Ok(Python::with_gil(|py| Msg::new(msg).into_py(py)))
+        })
     }
 }
 
@@ -800,6 +825,42 @@ impl Event {
 }
 
 #[pyclass]
+struct EventReceiver(Receiver<SolEvent>);
+
+#[pymethods]
+impl EventReceiver {
+    fn __repr__(&self) -> String {
+        format!("{:?}", self.0)
+    }
+
+    fn recv(&self, py: Python) -> PyResult<Event> {
+        py.allow_threads(|| {
+            self.0.recv().map_err(|e| ReceiverError(e).into()).map(Event::new)
+        })
+    }
+}
+
+#[pyclass]
+struct AsyncEventReceiver(AsyncReceiver<SolEvent>);
+
+#[pymethods]
+impl AsyncEventReceiver {
+    fn __repr__(&self) -> String {
+        format!("{:?}", self.0)
+    }
+
+    fn recv<'p>(&self, py: Python<'p>) -> PyResult<&'p PyAny> {
+        let receiver = self.0.clone();
+        future_into_py(py, async move {
+            let event = receiver.recv().await.map_err(|e| {
+                PyException::new_err(format!("AsyncReceiveError: {:?}", e))
+            })?;
+            Ok(Python::with_gil(|py| Event::new(event).into_py(py)))
+        })
+    }
+}
+
+#[pyclass]
 struct Msg(SolMsg);
 
 impl Msg {
@@ -1112,40 +1173,40 @@ impl Client {
     #[new]
     fn __new__() -> Self {
         let solclient = SolClient::default();
-        let msg_recv = solclient.get_msg_receiver();
+        // let msg_recv = solclient.get_msg_receiver();
         let msg_break = Arc::new(AtomicCell::new(false));
-        let msg_break_clone = msg_break.clone();
-        let th_msg_join = std::thread::spawn(move || loop {
-            match msg_recv.recv_timeout(Duration::from_millis(1000)) {
-                Ok(msg) => {
-                    tracing::info!("{:?}", msg);
-                }
-                Err(_) => {
-                    if msg_break_clone.load() {
-                        tracing::debug!("msg_loop_break");
-                        drop(msg_recv);
-                        break;
-                    }
-                }
-            }
-        });
-        let event_recv = solclient.get_event_receiver();
+        // let msg_break_clone = msg_break.clone();
+        // let th_msg_join = std::thread::spawn(move || loop {
+        //     match msg_recv.recv_timeout(Duration::from_millis(1000)) {
+        //         Ok(msg) => {
+        //             tracing::info!("{:?}", msg);
+        //         }
+        //         Err(_) => {
+        //             if msg_break_clone.load() {
+        //                 tracing::debug!("msg_loop_break");
+        //                 drop(msg_recv);
+        //                 break;
+        //             }
+        //         }
+        //     }
+        // });
+        // let event_recv = solclient.get_event_receiver();
         let event_break = Arc::new(AtomicCell::new(false));
-        let event_break_clone = event_break.clone();
-        let th_event_join = std::thread::spawn(move || loop {
-            match event_recv.recv_timeout(Duration::from_millis(1000)) {
-                Ok(event) => {
-                    tracing::info!("{:?}", event);
-                }
-                Err(_) => {
-                    if event_break_clone.load() {
-                        tracing::debug!("event_loop_break");
-                        drop(event_recv);
-                        break;
-                    }
-                }
-            }
-        });
+        // let event_break_clone = event_break.clone();
+        // let th_event_join = std::thread::spawn(move || loop {
+        //     match event_recv.recv_timeout(Duration::from_millis(1000)) {
+        //         Ok(event) => {
+        //             tracing::info!("{:?}", event);
+        //         }
+        //         Err(_) => {
+        //             if event_break_clone.load() {
+        //                 tracing::debug!("event_loop_break");
+        //                 drop(event_recv);
+        //                 break;
+        //             }
+        //         }
+        //     }
+        // });
         Client {
             solclient: solclient,
             is_connected: false,
@@ -1153,8 +1214,10 @@ impl Client {
             msg_callback: None,
             request_callback: None,
             p2p_callback: None,
-            th_event_join: Some(th_event_join),
-            th_msg_join: Some(th_msg_join),
+            // th_event_join: Some(th_event_join),
+            th_event_join: None,
+            // th_msg_join: Some(th_msg_join),
+            th_msg_join: None,
             th_request_join: None,
             th_p2p_join: None,
             msg_break: msg_break,
@@ -1426,6 +1489,50 @@ impl Client {
         Ok(MsgReceiver(receiver))
     }
 
+    fn send_request_async<'p>(&mut self, py: Python<'p>, msg: &Msg) -> PyResult<&'p PyAny> {
+        let receiver = self.solclient.send_request_async_receiver(&msg.0).map_err(PySolClientError::from)?;
+
+        future_into_py(py, async move {
+            let msg = receiver.recv().await.map_err(|e| {
+                PyException::new_err(format!("AsyncReceiveError: {:?}", e))
+            })?;
+            Ok(Python::with_gil(|py| Msg::new(msg).into_py(py)))
+        })
+    }
+
+    fn get_event_receiver(&self) -> EventReceiver {
+        EventReceiver(self.solclient.get_event_receiver())
+    }
+    
+    fn get_msg_receiver(&self) -> MsgReceiver {
+        MsgReceiver(self.solclient.get_msg_receiver())
+    }
+
+    fn get_p2p_receiver(&self) -> MsgReceiver {
+        MsgReceiver(self.solclient.get_p2p_receiver())
+    }
+
+    fn get_request_receiver(&self) -> MsgReceiver {
+        MsgReceiver(self.solclient.get_request_receiver())
+    }
+
+    // Async version that returns AsyncMsgReceiver for more control
+    fn get_async_msg_receiver(&self) -> AsyncMsgReceiver {
+        AsyncMsgReceiver(self.solclient.get_async_msg_receiver())
+    }
+
+    fn get_async_request_receiver(&self) -> AsyncMsgReceiver {
+        AsyncMsgReceiver(self.solclient.get_async_request_receiver())
+    }
+
+    fn get_async_p2p_receiver(&self) -> AsyncMsgReceiver {
+        AsyncMsgReceiver(self.solclient.get_async_p2p_receiver())
+    }
+
+    fn get_async_event_receiver(&self) -> AsyncEventReceiver {
+        AsyncEventReceiver(self.solclient.get_async_event_receiver())
+    }
+
     fn send_reply(&self, rx_msg: &Msg, reply_msg: &Msg) -> ReturnCode {
         ReturnCode(self.solclient.send_reply(&rx_msg.0, &reply_msg.0))
     }
@@ -1466,6 +1573,10 @@ fn pyrsolace(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Client>()?;
     m.add_class::<Event>()?;
     m.add_class::<Msg>()?;
+    m.add_class::<EventReceiver>()?;
+    m.add_class::<MsgReceiver>()?;
+    m.add_class::<AsyncMsgReceiver>()?;
+    m.add_class::<AsyncEventReceiver>()?;
     m.add_class::<DeliveryMode>()?;
     m.add_class::<SessionEvent>()?;
     m.add_class::<DestType>()?;
