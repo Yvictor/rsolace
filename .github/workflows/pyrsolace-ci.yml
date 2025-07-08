@@ -124,18 +124,13 @@ jobs:
       - name: Set up Clang
         uses: egor-tensin/setup-clang@v1
         with:
-          version: "11"
+          version: "latest"
           platform: ${{ matrix.target }}
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: ${{ matrix.target }}
       - name: Build wheels
         uses: PyO3/maturin-action@v1
-        env:
-          LIBCLANG_PATH: C:\Program Files\LLVM\bin
-          BINDGEN_EXTRA_CLANG_ARGS: "${{ matrix.target == 'x64' && '--target=x86_64-pc-windows-msvc' || '--target=i686-pc-windows-msvc' }} -fms-compatibility-version=19"
-          CC: clang
-          CXX: clang++
         with:
           working-directory: pyrsolace
           target: ${{ matrix.target }}
