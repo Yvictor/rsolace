@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   linux:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     strategy:
       matrix:
         target: [x86_64]
@@ -94,11 +94,12 @@ jobs:
             apt install -y libclang-dev build-essential python3 python3-pip python3-venv curl
             curl https://sh.rustup.rs -sSf | sh -s -- --default-toolchain stable -y
             echo 'source $HOME/.cargo/env' >> $HOME/.bashrc
-            python3 -m pip install --break-system-packages maturin
+            python3 -m venv /root/venv
+            /root/venv/bin/pip install maturin
           run: |
             source $HOME/.cargo/env
             cd pyrsolace
-            maturin build --release --out dist --find-interpreter
+            /root/venv/bin/maturin build --release --out dist --find-interpreter
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -119,7 +120,7 @@ jobs:
       - name: Set up Clang
         uses: egor-tensin/setup-clang@v1
         with:
-          version: "15"
+          version: "11"
           platform: ${{ matrix.target }}
       - uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -128,7 +129,9 @@ jobs:
         uses: PyO3/maturin-action@v1
         env:
           LIBCLANG_PATH: C:\Program Files\LLVM\bin
-          BINDGEN_EXTRA_CLANG_ARGS: "--target=x86_64-pc-windows-msvc"
+          BINDGEN_EXTRA_CLANG_ARGS: "--target=x86_64-pc-windows-msvc -fms-compatibility-version=19"
+          CC: clang
+          CXX: clang++
         with:
           working-directory: pyrsolace
           target: ${{ matrix.target }}
