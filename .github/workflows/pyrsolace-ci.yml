@@ -95,11 +95,13 @@ jobs:
             curl https://sh.rustup.rs -sSf | sh -s -- --default-toolchain stable -y
             echo 'source $HOME/.cargo/env' >> $HOME/.bashrc
             curl -LsSf https://astral.sh/uv/install.sh | sh
-            echo 'source $HOME/.cargo/env' >> $HOME/.bashrc
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> $HOME/.bashrc
+            export PATH="$HOME/.local/bin:$PATH"
             uv python install 3.10
-            uv pip install maturin
+            uv tool install maturin
           run: |
             source $HOME/.cargo/env
+            export PATH="$HOME/.local/bin:$PATH"
             cd pyrsolace
             uv run maturin build --release --out dist --find-interpreter
       - name: Upload wheels
