@@ -20,10 +20,10 @@ permissions:
 
 jobs:
   linux:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     strategy:
       matrix:
-        target: [x86_64] #aarch64
+        target: [x86_64]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -87,18 +87,23 @@ jobs:
       - uses: uraimo/run-on-arch-action@v3
         with:
           arch: ${{ matrix.target }}
-          distro: ubuntu24.04
+          distro: ubuntu22.04
           githubToken: ${{ github.token }}
           install: |
             apt update
-            apt install -y libclang-dev build-essential python3 python3-pip curl
+            apt install -y libclang-dev build-essential curl
             curl https://sh.rustup.rs -sSf | sh -s -- --default-toolchain stable -y
             echo 'source $HOME/.cargo/env' >> $HOME/.bashrc
-            pip install maturin
+            curl -LsSf https://astral.sh/uv/install.sh | sh
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> $HOME/.bashrc
+            export PATH="$HOME/.local/bin:$PATH"
+            uv python install 3.10
+            uv tool install maturin
           run: |
             source $HOME/.cargo/env
+            export PATH="$HOME/.local/bin:$PATH"
             cd pyrsolace
-            maturin build --release --out dist --find-interpreter
+            uv run maturin build --release --out dist --find-interpreter
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -119,7 +124,7 @@ jobs:
       - name: Set up Clang
         uses: egor-tensin/setup-clang@v1
         with:
-          version: latest
+          version: "latest"
           platform: ${{ matrix.target }}
       - uses: ilammy/msvc-dev-cmd@v1
         with:
