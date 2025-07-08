@@ -25,8 +25,8 @@ jobs:
       matrix:
         target: [x86_64] #aarch64
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -66,7 +66,7 @@ jobs:
         #         apt update -y && apt-get install -y perl libssl-dev openssl pkg-config libclang-dev gcc-multilib
         #     fi
       - name: Upload wheels
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: wheels
           path: pyrsolace/dist
@@ -78,7 +78,7 @@ jobs:
         target: [aarch64]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -100,7 +100,7 @@ jobs:
             cd pyrsolace
             maturin build --release --out dist --find-interpreter
       - name: Upload wheels
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: wheels
           path: pyrsolace/dist
@@ -111,8 +111,8 @@ jobs:
       matrix:
         target: [x64, x86]
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
           architecture: ${{ matrix.target }}
@@ -132,7 +132,7 @@ jobs:
           args: --release --out dist --find-interpreter
           sccache: "true"
       - name: Upload wheels
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: wheels
           path: pyrsolace/dist
@@ -143,8 +143,8 @@ jobs:
       matrix:
         target: [x86_64, aarch64]
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
       - name: Build wheels
@@ -155,7 +155,7 @@ jobs:
           args: --release --out dist --find-interpreter
           sccache: "true"
       - name: Upload wheels
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: wheels
           path: pyrsolace/dist
@@ -166,7 +166,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     needs: [linux, windows, macos, linux-arm]
     steps:
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
           name: wheels
       - name: Publish to PyPI
