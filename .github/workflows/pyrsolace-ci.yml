@@ -91,15 +91,17 @@ jobs:
           githubToken: ${{ github.token }}
           install: |
             apt update
-            apt install -y libclang-dev build-essential python3 python3-pip python3-venv curl
+            apt install -y libclang-dev build-essential curl
             curl https://sh.rustup.rs -sSf | sh -s -- --default-toolchain stable -y
             echo 'source $HOME/.cargo/env' >> $HOME/.bashrc
-            python3 -m venv /root/venv
-            /root/venv/bin/pip install maturin
+            curl -LsSf https://astral.sh/uv/install.sh | sh
+            echo 'source $HOME/.cargo/env' >> $HOME/.bashrc
+            uv python install 3.10
+            uv pip install maturin
           run: |
             source $HOME/.cargo/env
             cd pyrsolace
-            /root/venv/bin/maturin build --release --out dist --find-interpreter
+            uv run maturin build --release --out dist --find-interpreter
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
