@@ -87,14 +87,14 @@ jobs:
       - uses: uraimo/run-on-arch-action@v3
         with:
           arch: ${{ matrix.target }}
-          distro: ubuntu24.04
+          distro: ubuntu22.04
           githubToken: ${{ github.token }}
           install: |
             apt update
-            apt install -y libclang-dev build-essential python3 python3-pip curl
+            apt install -y libclang-dev build-essential python3 python3-pip python3-venv curl
             curl https://sh.rustup.rs -sSf | sh -s -- --default-toolchain stable -y
             echo 'source $HOME/.cargo/env' >> $HOME/.bashrc
-            pip install maturin
+            python3 -m pip install --break-system-packages maturin
           run: |
             source $HOME/.cargo/env
             cd pyrsolace
@@ -119,13 +119,15 @@ jobs:
       - name: Set up Clang
         uses: egor-tensin/setup-clang@v1
         with:
-          version: latest
+          version: "15"
           platform: ${{ matrix.target }}
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: ${{ matrix.target }}
       - name: Build wheels
         uses: PyO3/maturin-action@v1
+        env:
+          LIBCLANG_PATH: C:\Program Files\LLVM\bin
         with:
           working-directory: pyrsolace
           target: ${{ matrix.target }}
