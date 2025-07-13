@@ -1,3 +1,10 @@
 /target
 solclient-7.25.0.10
 .env
+
+.DS_Store
+
+__pycache__/
+.build/
+*.ipynb
+solclient*.tar.gz
