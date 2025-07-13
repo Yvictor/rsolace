@@ -14,6 +14,7 @@ use snafu::ResultExt;
 use std::ffi::{c_void, CString};
 use std::option::Option;
 use std::os::raw::c_char;
+use std::pin::Pin;
 use std::ptr::{null, null_mut};
 // TODO fn pointer to struct
 #[cfg(feature = "channel")]
@@ -280,7 +281,7 @@ impl From<SolClientFuncInfo> for rsolace_sys::solClient_session_createFuncInfo_t
     }
 }
 
-pub struct SolClient {
+struct SolClientInner {
     context_p: i32,
     // context_func_info: rsolace_sys::solClient_context_createFuncInfo_t,
     // session_p: rsolace_sys::solClient_opaqueSession_pt,
@@ -317,6 +318,10 @@ pub struct SolClient {
     async_request_reply_map: DashMap<String, AsyncSender<SolMsg>>,
 }
 
+pub struct SolClient {
+    inner: Pin<Box<SolClientInner>>,
+}
+
 impl Default for SolClient {
     fn default() -> Self {
         Self::new(SolClientLogLevel::Notice).unwrap()
@@ -324,6 +329,15 @@ impl Default for SolClient {
 }
 
 impl SolClient {
+    // Helper method to access inner safely
+    fn inner(&self) -> &SolClientInner {
+        &*self.inner
+    }
+
+    fn inner_mut(&mut self) -> &mut SolClientInner {
+        self.inner.as_mut().get_mut()
+    }
+
     pub fn new(log_level: SolClientLogLevel) -> Result<SolClient, SolClientError> {
         let mut context_p: rsolace_sys::solClient_opaqueContext_pt = null_mut();
         let session_p: rsolace_sys::solClient_opaqueSession_pt = null_mut();
@@ -366,16 +380,17 @@ impl SolClient {
             let (p2p_sender, p2p_receiver) = unbounded();
             let (request_sender, request_receiver) = unbounded();
             let (event_sender, envent_receiver) = unbounded();
-            Ok(SolClient {
+
+            let inner = SolClientInner {
                 // context_p,
                 context_p: context_p as i32,
                 // context_func_info: context_func_info,
                 session_p: session_p as i32,
                 session_func_info: None,
                 #[cfg(feature = "raw")]
-                None,
+                rx_msg_callback: None,
                 #[cfg(feature = "raw")]
-                None,
+                rx_event_callback: None,
                 #[cfg(feature = "channel")]
                 msg_sender,
                 #[cfg(feature = "channel")]
@@ -398,19 +413,20 @@ impl SolClient {
                 #[cfg(all(feature = "channel", feature = "tokio"))]
                 // async_request_reply_map: Arc::new(DashMap::new()),
                 async_request_reply_map: DashMap::new(),
+            };
+
+            Ok(SolClient {
+                inner: Box::pin(inner),
             })
         }
     }
 
     pub fn connect(&mut self, props: SessionProps) -> bool {
         let mut session_props = props.to_c();
-        // let c = unsafe { std::ffi::CStr::from_ptr(session_props[9]).to_str().unwrap() };
-        // let uname = unsafe { std::ffi::CStr::from_ptr(session_props[5]).to_str().unwrap() };
-        // tracing::debug!("cstr: {:?}, {:?}", props.compression_level, c);
-        // tracing::debug!("username cstr: {:?}, {:?}", props.username, uname);
         let session_props_ptr: rsolace_sys::solClient_propertyArray_pt = session_props.as_mut_ptr();
 
-        let user_p: *mut c_void = self as *mut _ as *mut c_void;
+        // Use stable pointer from Pin<Box> - this is guaranteed never to move
+        let user_p: *mut c_void = self.inner_mut() as *mut _ as *mut c_void;
         tracing::debug!("connect user_p: {:?}", user_p);
 
         unsafe extern "C" fn message_receive_callback(
@@ -421,8 +437,7 @@ impl SolClient {
             let solmsg = SolMsg::from_ptr(msg_p);
             match solmsg {
                 Ok(msg) => {
-                    let self_ref: &SolClient = &*(user_p as *const SolClient);
-
+                    let self_ref: &SolClientInner = &*(user_p as *const SolClientInner);
                     tracing::debug!("user_p: {:?}", user_p);
                     #[cfg(feature = "channel")]
                     {
@@ -502,7 +517,7 @@ impl SolClient {
             let event = SolEvent::from_ptr(event_info_p);
             match event {
                 Ok(event) => {
-                    let self_ref: &SolClient = &*(user_p as *const SolClient);
+                    let self_ref: &SolClientInner = &*(user_p as *const SolClientInner);
                     #[cfg(feature = "raw")]
                     {
                         if let Some(cb) = self_ref.rx_event_callback {
@@ -529,7 +544,7 @@ impl SolClient {
             }
         }
 
-        self.session_func_info = Some(SolClientFuncInfo {
+        self.inner_mut().session_func_info = Some(SolClientFuncInfo {
             rxInfo: SolClientRxCallbackInfo {
                 callback_p: None,
                 user_p: user_p as i32,
@@ -564,87 +579,84 @@ impl SolClient {
         unsafe {
             rsolace_sys::solClient_session_create(
                 session_props_ptr,
-                self.context_p as *mut _,
+                self.inner().context_p as *mut _,
                 &mut session_p,
                 session_func_info_ptr,
                 std::mem::size_of::<rsolace_sys::solClient_session_createFuncInfo>(),
             );
-            self.session_p = session_p as i32;
-            let rt_code = rsolace_sys::solClient_session_connect(self.session_p as *mut _);
+            self.inner_mut().session_p = session_p as i32;
+            let rt_code = rsolace_sys::solClient_session_connect(self.inner().session_p as *mut _);
             rt_code == (SolClientReturnCode::Ok as i32)
         }
     }
 
     pub fn disconnect(&self) {
-        // let user_p: *mut c_void = self as *mut _ as *mut c_void;
-        let user_p: *const c_void = self as *const _ as *const c_void;
+        let user_p: *const c_void = self.inner() as *const _ as *const c_void;
         tracing::debug!("disconnect const user_p: {:?}", user_p);
         unsafe {
-            if self.session_p != 0 {
+            if self.inner().session_p != 0 {
                 // Just disconnect the session - destroy will be handled in Drop
-                rsolace_sys::solClient_session_disconnect(self.session_p as *mut _);
+                rsolace_sys::solClient_session_disconnect(self.inner().session_p as *mut _);
             }
         }
     }
 
     #[cfg(feature = "raw")]
-    pub fn set_rx_msg_callback(&mut self, func: fn(&mut Self, SolMsg)) {
-        self.rx_msg_callback = Some(func);
+    pub fn set_rx_msg_callback(&mut self, func: fn(&mut SolClientInner, SolMsg)) {
+        self.inner_mut().rx_msg_callback = Some(func);
     }
 
     #[cfg(feature = "raw")]
-    pub fn set_rx_event_callback(&mut self, func: fn(&mut Self, SolEvent)) {
-        self.rx_event_callback = Some(func);
+    pub fn set_rx_event_callback(&mut self, func: fn(&mut SolClientInner, SolEvent)) {
+        self.inner_mut().rx_event_callback = Some(func);
     }
 
     #[cfg(feature = "channel")]
     pub fn get_msg_receiver(&self) -> Receiver<SolMsg> {
-        self.msg_receiver.clone()
+        self.inner().msg_receiver.clone()
     }
 
     #[cfg(feature = "channel")]
     pub fn get_request_receiver(&self) -> Receiver<SolMsg> {
-        self.request_receiver.clone()
+        self.inner().request_receiver.clone()
     }
 
     #[cfg(feature = "channel")]
     pub fn get_p2p_receiver(&self) -> Receiver<SolMsg> {
-        self.p2p_receiver.clone()
+        self.inner().p2p_receiver.clone()
     }
 
     #[cfg(feature = "channel")]
     pub fn get_event_receiver(&self) -> Receiver<SolEvent> {
-        self.event_receiver.clone()
+        self.inner().event_receiver.clone()
     }
 
     // Async channel support with kanal
     #[cfg(all(feature = "channel", feature = "tokio"))]
     pub fn get_async_msg_receiver(&self) -> AsyncReceiver<SolMsg> {
-        let user_p: *const c_void = self as *const _ as *const c_void;
-        tracing::debug!("get_async_msg_receiver const user_p: {:?}", user_p);
-        self.msg_receiver.as_async().clone()
+        self.inner().msg_receiver.as_async().clone()
     }
 
     #[cfg(all(feature = "channel", feature = "tokio"))]
     pub fn get_async_request_receiver(&self) -> AsyncReceiver<SolMsg> {
-        self.request_receiver.as_async().clone()
+        self.inner().request_receiver.as_async().clone()
     }
 
     #[cfg(all(feature = "channel", feature = "tokio"))]
     pub fn get_async_p2p_receiver(&self) -> AsyncReceiver<SolMsg> {
-        self.p2p_receiver.as_async().clone()
+        self.inner().p2p_receiver.as_async().clone()
     }
 
     #[cfg(all(feature = "channel", feature = "tokio"))]
     pub fn get_async_event_receiver(&self) -> AsyncReceiver<SolEvent> {
-        self.event_receiver.as_async().clone()
+        self.inner().event_receiver.as_async().clone()
     }
 
     pub fn subscribe(&self, topic: &str) -> SolClientReturnCode {
         let topic = CString::new(topic).unwrap();
         unsafe {
             let rt_code = rsolace_sys::solClient_session_topicSubscribe(
-                self.session_p as *mut _,
+                self.inner().session_p as *mut _,
                 topic.as_ptr(),
             );
             SolClientReturnCode::from_i32(rt_code).unwrap()
@@ -655,7 +667,7 @@ impl SolClient {
         let topic = CString::new(topic).unwrap();
         unsafe {
             let rt_code = rsolace_sys::solClient_session_topicUnsubscribe(
-                self.session_p as *mut _,
+                self.inner().session_p as *mut _,
                 topic.as_ptr(),
             );
             SolClientReturnCode::from_i32(rt_code).unwrap()
@@ -663,12 +675,12 @@ impl SolClient {
     }
 
     pub fn subscribe_ext(&self, topic: &str, flag: SolClientSubscribeFlags) -> SolClientReturnCode {
-        let user_p: *const c_void = self as *const _ as *const c_void;
+        let user_p: *const c_void = self.inner() as *const _ as *const c_void;
         tracing::debug!("subscribe const user_p: {:?}", user_p);
         let topic = CString::new(topic).unwrap();
         unsafe {
             let rt_code = rsolace_sys::solClient_session_topicSubscribeExt(
-                self.session_p as *mut _,
+                self.inner().session_p as *mut _,
                 flag as rsolace_sys::solClient_subscribeFlags_t,
                 topic.as_ptr(),
             );
@@ -684,7 +696,7 @@ impl SolClient {
         let topic = CString::new(topic).unwrap();
         unsafe {
             let rt_code = rsolace_sys::solClient_session_topicUnsubscribeExt(
-                self.session_p as *mut _,
+                self.inner().session_p as *mut _,
                 flag as rsolace_sys::solClient_subscribeFlags_t,
                 topic.as_ptr(),
             );
@@ -694,7 +706,7 @@ impl SolClient {
 
     pub fn send_msg(&self, msg: &SolMsg) -> SolClientReturnCode {
         let rt_code = unsafe {
-            rsolace_sys::solClient_session_sendMsg(self.session_p as *mut _, msg.get_ptr())
+            rsolace_sys::solClient_session_sendMsg(self.inner().session_p as *mut _, msg.get_ptr())
         };
         SolClientReturnCode::from_i32(rt_code).unwrap()
     }
@@ -709,7 +721,7 @@ impl SolClient {
         }
         let rt_code = unsafe {
             rsolace_sys::solClient_session_sendMultipleMsg(
-                self.session_p as *mut _,
+                self.inner().session_p as *mut _,
                 &mut arr_msg as *mut *mut c_void,
                 msgs.len() as rsolace_sys::solClient_uint32_t,
                 &mut num,
@@ -726,7 +738,7 @@ impl SolClient {
         let mut reply_msg_pt: rsolace_sys::solClient_opaqueMsg_pt = null_mut();
         let rt_code = unsafe {
             rsolace_sys::solClient_session_sendRequest(
-                self.session_p as *mut _,
+                self.inner().session_p as *mut _,
                 msg.get_ptr(),
                 &mut reply_msg_pt,
                 timeout,
@@ -778,7 +790,7 @@ impl SolClient {
         if timeout == 0 {
             let corrid = msg.get_correlation_id().unwrap_or("c0".into());
             {
-                self.request_reply_map.insert(corrid, s);
+                self.inner().request_reply_map.insert(corrid, s);
             }
             // tracing::debug!("send request with channel insert to map done");
             let (rt_code, _) = self.send_request_unsafe_part(msg, timeout);
@@ -813,15 +825,15 @@ impl SolClient {
         &self,
         msg: &SolMsg,
     ) -> Result<AsyncReceiver<SolMsg>, SolClientError> {
-        let user_p: *const c_void = self as *const _ as *const c_void;
-        tracing::debug!("send_request_async_receiver const user_p: {:?}", user_p);
+        // let user_p: *const c_void = self.inner() as *const _ as *const c_void;
+        // tracing::debug!("send_request_async_receiver const user_p: {:?}", user_p);
         // For async implementation, we'll use kanal's async bounded channel
         let (s, r) = bounded_async(1);
 
         let corrid = msg.get_correlation_id().unwrap_or("c0".into());
         // Store async sender directly in the map
         {
-            self.async_request_reply_map.insert(corrid, s);
+            self.inner().async_request_reply_map.insert(corrid, s);
         }
         let (rt_code, _) = self.send_request_unsafe_part(msg, 0);
         ensure!(
@@ -871,7 +883,7 @@ impl SolClient {
         let r = unsafe {
             rsolace_sys::solClient_session_createCacheSession(
                 cache_session_props_ptr,
-                self.session_p as rsolace_sys::solClient_opaqueSession_pt,
+                self.inner().session_p as rsolace_sys::solClient_opaqueSession_pt,
                 &mut cache_session_ptr,
             )
         };
@@ -898,7 +910,7 @@ impl SolClient {
                 topic_c.as_ptr(),
                 request_id,
                 callback_p,
-                self.session_p as *mut _,
+                self.inner().session_p as *mut _,
                 flags as rsolace_sys::solClient_cacheRequestFlags_t,
                 SolClientSubscribeFlags::RequestConfirm as rsolace_sys::solClient_subscribeFlags_t,
             )
@@ -922,7 +934,7 @@ impl SolClient {
     pub fn send_reply(&self, rx_msg: &SolMsg, reply_msg: &SolMsg) -> SolClientReturnCode {
         let rt_code = unsafe {
             rsolace_sys::solClient_session_sendReply(
-                self.session_p as *mut _,
+                self.inner().session_p as *mut _,
                 rx_msg.get_ptr(),
                 reply_msg.get_ptr(),
             )
@@ -959,7 +971,7 @@ impl SolClient {
 
         let rt_code = unsafe {
             rsolace_sys::solClient_session_modifyClientInfo(
-                self.session_p as *mut _,
+                self.inner().session_p as *mut _,
                 client_info_props.as_mut_ptr(),
                 rsolace_sys::SOLCLIENT_MODIFYPROP_FLAGS_WAITFORCONFIRM,
                 std::ptr::null_mut(),
@@ -969,28 +981,28 @@ impl SolClient {
     }
 
     pub fn get_ptr(&self) -> *const c_void {
-        self as *const _ as *const c_void
+        self.inner() as *const _ as *const c_void
     }
 }
 
 impl Drop for SolClient {
     fn drop(&mut self) {
         // First destroy session if it wasn't already destroyed
-        if self.session_p != 0 {
+        if self.inner().session_p != 0 {
             unsafe {
-                rsolace_sys::solClient_session_disconnect(self.session_p as *mut _);
-                rsolace_sys::solClient_session_destroy(&mut (self.session_p as *mut _));
+                rsolace_sys::solClient_session_disconnect(self.inner().session_p as *mut _);
+                rsolace_sys::solClient_session_destroy(&mut (self.inner().session_p as *mut _));
             }
         }
 
-        let context_p = self.context_p as rsolace_sys::solClient_opaqueContext_pt;
-        // tracing::debug!("solace client context_p {}", self.context_p);
+        let context_p = self.inner().context_p as rsolace_sys::solClient_opaqueContext_pt;
+        // tracing::debug!("solace client context_p {}", self.inner().context_p);
         // tracing::debug!("solace client context_p {:?}", context_p);
         unsafe {
             rsolace_sys::solClient_context_destroy(&mut (context_p as *mut _));
             rsolace_sys::solClient_cleanup();
             // tracing::debug!("solace client context_p {:?}", context_p);
-            // tracing::debug!("solace client context_p {}", self.context_p);
+            // tracing::debug!("solace client context_p {}", self.inner().context_p);
         }
         tracing::debug!("solace client dropped");
     }
