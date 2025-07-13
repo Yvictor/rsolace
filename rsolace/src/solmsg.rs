@@ -1010,4 +1010,37 @@ mod tests {
         assert_eq!(solmsg.get_user_prop("ct").unwrap(), "bytes/msgpack");
         assert_eq!(solmsg.get_binary_attachment().unwrap(), vec![0, 1, 2, 3, 4]);
     }
+
+    #[test]
+    fn solmsg_send_between_threads() {
+        use std::sync::mpsc;
+        use std::thread;
+
+        let (tx, rx) = mpsc::channel();
+
+        // Create SolMsg in one thread
+        let handle = thread::spawn(move || {
+            let mut msg = SolMsgBuilder::new()
+                .with_topic("test/topic")
+                .with_correlation_id("test-corr-id")
+                .with_binary_attachment(b"test data".to_vec())
+                .build();
+
+            // Send the message to another thread
+            tx.send(msg).unwrap();
+        });
+
+        // Receive and use SolMsg in main thread
+        let received_msg = rx.recv().unwrap();
+
+        // Verify we can access the message properties
+        assert_eq!(received_msg.get_topic().unwrap(), "test/topic");
+        assert_eq!(received_msg.get_correlation_id().unwrap(), "test-corr-id");
+        assert_eq!(
+            received_msg.get_binary_attachment().unwrap().as_ref(),
+            b"test data"
+        );
+
+        handle.join().unwrap();
+    }
 }
