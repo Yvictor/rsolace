@@ -21,6 +21,7 @@ use kanal::{bounded, unbounded, Receiver, Sender};
 // Async kanal imports for future async support
 #[cfg(all(feature = "channel", feature = "tokio"))]
 use kanal::{bounded_async, AsyncReceiver, AsyncSender};
+// use std::sync::Arc;
 // #[cfg_attr(feature = "tokio", derive(Debug, Clone))]
 
 #[derive(Debug, Snafu, PartialEq)]
@@ -309,8 +310,10 @@ pub struct SolClient {
     #[cfg(feature = "channel")]
     event_receiver: Receiver<SolEvent>,
     #[cfg(feature = "channel")]
+    // request_reply_map: Arc<DashMap<String, Sender<SolMsg>>>,
     request_reply_map: DashMap<String, Sender<SolMsg>>,
     #[cfg(all(feature = "channel", feature = "tokio"))]
+    // async_request_reply_map: Arc<DashMap<String, AsyncSender<SolMsg>>>,
     async_request_reply_map: DashMap<String, AsyncSender<SolMsg>>,
 }
 
@@ -390,8 +393,10 @@ impl SolClient {
                 #[cfg(feature = "channel")]
                 event_receiver: envent_receiver,
                 #[cfg(feature = "channel")]
+                // request_reply_map: Arc::new(DashMap::new()),
                 request_reply_map: DashMap::new(),
                 #[cfg(all(feature = "channel", feature = "tokio"))]
+                // async_request_reply_map: Arc::new(DashMap::new()),
                 async_request_reply_map: DashMap::new(),
             })
         }
@@ -406,6 +411,7 @@ impl SolClient {
         let session_props_ptr: rsolace_sys::solClient_propertyArray_pt = session_props.as_mut_ptr();
 
         let user_p: *mut c_void = self as *mut _ as *mut c_void;
+        tracing::debug!("connect user_p: {:?}", user_p);
 
         unsafe extern "C" fn message_receive_callback(
             _opaque_session_p: rsolace_sys::solClient_opaqueSession_pt,
@@ -415,8 +421,9 @@ impl SolClient {
             let solmsg = SolMsg::from_ptr(msg_p);
             match solmsg {
                 Ok(msg) => {
-                    let self_ref: &mut SolClient = &mut *(user_p as *mut SolClient);
+                    let self_ref: &SolClient = &*(user_p as *const SolClient);
 
+                    tracing::debug!("user_p: {:?}", user_p);
                     #[cfg(feature = "channel")]
                     {
                         if msg.is_reply() {
@@ -495,7 +502,7 @@ impl SolClient {
             let event = SolEvent::from_ptr(event_info_p);
             match event {
                 Ok(event) => {
-                    let self_ref: &mut SolClient = &mut *(user_p as *mut SolClient);
+                    let self_ref: &SolClient = &*(user_p as *const SolClient);
                     #[cfg(feature = "raw")]
                     {
                         if let Some(cb) = self_ref.rx_event_callback {
@@ -568,9 +575,15 @@ impl SolClient {
         }
     }
 
-    pub fn disconnect(&mut self) {
+    pub fn disconnect(&self) {
+        // let user_p: *mut c_void = self as *mut _ as *mut c_void;
+        let user_p: *const c_void = self as *const _ as *const c_void;
+        tracing::debug!("disconnect const user_p: {:?}", user_p);
         unsafe {
-            rsolace_sys::solClient_session_disconnect(self.session_p as *mut _);
+            if self.session_p != 0 {
+                // Just disconnect the session - destroy will be handled in Drop
+                rsolace_sys::solClient_session_disconnect(self.session_p as *mut _);
+            }
         }
     }
 
@@ -607,6 +620,8 @@ impl SolClient {
     // Async channel support with kanal
     #[cfg(all(feature = "channel", feature = "tokio"))]
     pub fn get_async_msg_receiver(&self) -> AsyncReceiver<SolMsg> {
+        let user_p: *const c_void = self as *const _ as *const c_void;
+        tracing::debug!("get_async_msg_receiver const user_p: {:?}", user_p);
         self.msg_receiver.as_async().clone()
     }
 
@@ -648,6 +663,8 @@ impl SolClient {
     }
 
     pub fn subscribe_ext(&self, topic: &str, flag: SolClientSubscribeFlags) -> SolClientReturnCode {
+        let user_p: *const c_void = self as *const _ as *const c_void;
+        tracing::debug!("subscribe const user_p: {:?}", user_p);
         let topic = CString::new(topic).unwrap();
         unsafe {
             let rt_code = rsolace_sys::solClient_session_topicSubscribeExt(
@@ -747,7 +764,7 @@ impl SolClient {
 
     #[cfg(feature = "channel")]
     pub fn send_request(
-        &mut self,
+        &self,
         msg: &SolMsg,
         timeout: u32,
     ) -> Result<Receiver<SolMsg>, SolClientError> {
@@ -760,7 +777,9 @@ impl SolClient {
         // let reply_msg_pt: rsolace_sys::solClient_opaqueMsg_pt = null_mut();
         if timeout == 0 {
             let corrid = msg.get_correlation_id().unwrap_or("c0".into());
-            self.request_reply_map.insert(corrid, s);
+            {
+                self.request_reply_map.insert(corrid, s);
+            }
             // tracing::debug!("send request with channel insert to map done");
             let (rt_code, _) = self.send_request_unsafe_part(msg, timeout);
             ensure!(
@@ -791,15 +810,19 @@ impl SolClient {
 
     #[cfg(all(feature = "channel", feature = "tokio"))]
     pub fn send_request_async_receiver(
-        &mut self,
+        &self,
         msg: &SolMsg,
     ) -> Result<AsyncReceiver<SolMsg>, SolClientError> {
+        let user_p: *const c_void = self as *const _ as *const c_void;
+        tracing::debug!("send_request_async_receiver const user_p: {:?}", user_p);
         // For async implementation, we'll use kanal's async bounded channel
         let (s, r) = bounded_async(1);
 
         let corrid = msg.get_correlation_id().unwrap_or("c0".into());
         // Store async sender directly in the map
-        self.async_request_reply_map.insert(corrid, s);
+        {
+            self.async_request_reply_map.insert(corrid, s);
+        }
         let (rt_code, _) = self.send_request_unsafe_part(msg, 0);
         ensure!(
             rt_code == SolClientReturnCode::InProgress,
@@ -813,7 +836,7 @@ impl SolClient {
     }
 
     #[cfg(all(feature = "channel", feature = "tokio"))]
-    pub async fn send_request_async(&mut self, msg: &SolMsg) -> Result<SolMsg, SolClientError> {
+    pub async fn send_request_async(&self, msg: &SolMsg) -> Result<SolMsg, SolClientError> {
         let topic = msg.get_topic().context(SolMsgSnafu)?;
         let receiver = self.send_request_async_receiver(msg)?;
         receiver
@@ -944,10 +967,22 @@ impl SolClient {
         };
         SolClientReturnCode::from_i32(rt_code).unwrap()
     }
+
+    pub fn get_ptr(&self) -> *const c_void {
+        self as *const _ as *const c_void
+    }
 }
 
 impl Drop for SolClient {
     fn drop(&mut self) {
+        // First destroy session if it wasn't already destroyed
+        if self.session_p != 0 {
+            unsafe {
+                rsolace_sys::solClient_session_disconnect(self.session_p as *mut _);
+                rsolace_sys::solClient_session_destroy(&mut (self.session_p as *mut _));
+            }
+        }
+
         let context_p = self.context_p as rsolace_sys::solClient_opaqueContext_pt;
         // tracing::debug!("solace client context_p {}", self.context_p);
         // tracing::debug!("solace client context_p {:?}", context_p);
