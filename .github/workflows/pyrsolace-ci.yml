@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   linux:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-20.04
     strategy:
       matrix:
         target: [x86_64]
@@ -38,12 +38,12 @@ jobs:
           version: "10.0"
       - name: Install maturin
         run: |
-          pip install maturin
+          pip install maturin[zig]
       - name: Build wheels
         run: |
           ldd --version
           cd pyrsolace
-          maturin build --release --out dist --find-interpreter
+          maturin build --release --out dist --find-interpreter --compatibility manylinux2014 --zig
         # uses: PyO3/maturin-action@v1
         # with:
         #   working-directory: pyrsolace
@@ -87,7 +87,7 @@ jobs:
       - uses: uraimo/run-on-arch-action@v3
         with:
           arch: ${{ matrix.target }}
-          distro: ubuntu22.04
+          distro: ubuntu20.04
           githubToken: ${{ github.token }}
           install: |
             apt update
@@ -103,7 +103,7 @@ jobs:
             source $HOME/.cargo/env
             export PATH="$HOME/.local/bin:$PATH"
             cd pyrsolace
-            uv run maturin build --release --out dist --find-interpreter
+            uv run maturin build --release --out dist --find-interpreter --compatibility manylinux2014 --zig
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
