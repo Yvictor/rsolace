@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   linux:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     strategy:
       matrix:
         target: [x86_64]
@@ -103,7 +103,7 @@ jobs:
             source $HOME/.cargo/env
             export PATH="$HOME/.local/bin:$PATH"
             cd pyrsolace
-            uv run maturin build --release --out dist --find-interpreter --compatibility manylinux2014 --zig
+            uv run maturin build --release --out dist --find-interpreter
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
