@@ -708,7 +708,7 @@ impl SolMsg {
             // Iterate through all fields in the source container
             while rsolace_sys::solClient_container_hasNextField(src_container_p) != 0 {
                 let mut field: rsolace_sys::solClient_field_t = mem::zeroed();
-                let mut name_ptr: *const i8 = std::ptr::null();
+                let mut name_ptr: *const std::os::raw::c_char = std::ptr::null();
                 
                 let get_result = rsolace_sys::solClient_container_getNextField(
                     src_container_p,
