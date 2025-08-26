@@ -1075,7 +1075,7 @@ impl Msg {
     }
 
     #[getter(msg_type)]
-    fn get_msg_type(&self) -> Option<Cow<str>> {
+    fn get_msg_type(&self) -> Option<Cow<'_, str>> {
         self.0.get_msg_type().ok()
     }
 
@@ -1110,11 +1110,11 @@ impl Msg {
     }
 
     #[getter(data)]
-    fn get_data(&self) -> Cow<[u8]> {
+    fn get_data(&self) -> Cow<'_, [u8]> {
         self.0.get_binary_attachment().unwrap_or(Cow::Borrowed(&[]))
     }
 
-    fn dump(&self) -> Cow<str> {
+    fn dump(&self) -> Cow<'_, str> {
         // self.0.dump(true);
         self.0.dump(false).unwrap_or("None".into())
     }

@@ -450,7 +450,7 @@ impl SolMsg {
         .unwrap()
     }
 
-    pub fn get_msg_type(&self) -> Result<Cow<str>, SolMsgError> {
+    pub fn get_msg_type(&self) -> Result<Cow<'_, str>, SolMsgError> {
         let mut msg_type: *const std::os::raw::c_char = null_mut();
         let rt_code =
             unsafe { rsolace_sys::solClient_msg_getApplicationMsgType(self.msg_p, &mut msg_type) };
@@ -578,7 +578,7 @@ impl SolMsg {
         }
     }
 
-    pub fn get_binary_attachment(&self) -> Result<Cow<[u8]>, SolMsgError> {
+    pub fn get_binary_attachment(&self) -> Result<Cow<'_, [u8]>, SolMsgError> {
         let mut data_ptr = null_mut();
         let mut data_len = 0;
         unsafe {
@@ -850,7 +850,7 @@ impl SolMsg {
         }
     }
 
-    pub fn dump(&self, display_only: bool) -> Option<Cow<str>> {
+    pub fn dump(&self, display_only: bool) -> Option<Cow<'_, str>> {
         if display_only {
             unsafe {
                 rsolace_sys::solClient_msg_dump(self.msg_p, null_mut(), 0);
