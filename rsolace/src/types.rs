@@ -49,6 +49,23 @@ enum_from_primitive! {
     }
 }
 
+impl std::fmt::Display for SolClientReturnCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SolClientReturnCode::Ok => write!(f, "OK"),
+            SolClientReturnCode::WouldBlock => write!(f, "WOULD_BLOCK"),
+            SolClientReturnCode::InProgress => write!(f, "IN_PROGRESS"),
+            SolClientReturnCode::NotReady => write!(f, "NOT_READY"),
+            SolClientReturnCode::Eos => write!(f, "EOS"),
+            SolClientReturnCode::NotFound => write!(f, "NOT_FOUND"),
+            SolClientReturnCode::NoEvent => write!(f, "NO_EVENT"),
+            SolClientReturnCode::InComplete => write!(f, "INCOMPLETE"),
+            SolClientReturnCode::Rollback => write!(f, "ROLLBACK"),
+            SolClientReturnCode::Fail => write!(f, "FAIL"),
+        }
+    }
+}
+
 #[cfg(target_os = "windows")]
 enum_from_primitive! {
     #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]

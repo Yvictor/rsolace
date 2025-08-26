@@ -9,7 +9,7 @@ use pyo3::basic::CompareOp;
 // use chrono::DateTime;
 use pyo3::prelude::*;
 // use pyo3::types::PyFunction;
-use pyo3::types::PyTuple;
+use pyo3::types::{PyTuple, PyDict, PyList, PyBytes};
 use pyo3::exceptions::PyException;
 use pyo3_asyncio::tokio::future_into_py;
 
@@ -17,6 +17,7 @@ use rsolace::solclient::{SessionProps, SolClient, SolClientError};
 use rsolace::solevent::SolEvent;
 use rsolace::solmsg::{Destination, SolMsg};
 use rsolace::solcache::CacheSessionProps;
+use rsolace::solcontainer::{SolContainer, ContainerType, ContainerFieldType};
 use rsolace::types::{SolClientDeliveryMode, SolClientCacheRequestFlags, SolClientDestType, SolClientReturnCode, SolClientSessionEvent, SolClientSubscribeFlags, SolClientCacheStatus};
 
 use crossbeam::atomic::AtomicCell;
@@ -1168,6 +1169,216 @@ fn init_tracing_logger(
     .init();
 }
 
+/// Convert Python object to SDT container bytes
+#[pyfunction]
+fn dumps(py: Python, obj: &PyAny) -> PyResult<Py<PyBytes>> {
+    let container = python_to_sdt_container(obj)?;
+    
+    // Use the new to_bytes method from SolContainer
+    let bytes_vec = container.to_bytes()
+        .map_err(|e| PyException::new_err(format!("Failed to serialize container: {}", e)))?;
+        
+    Ok(PyBytes::new(py, &bytes_vec).into())
+}
+
+/// Convert SolContainer back to Python objects
+fn sdt_container_to_python(py: Python, container: &SolContainer) -> PyResult<PyObject> {
+    use pyo3::types::{PyDict, PyList};
+    
+    // We need a mutable container to iterate fields
+    let bytes = container.to_bytes()
+        .map_err(|e| PyException::new_err(format!("Failed to clone container: {}", e)))?;
+    let mut mutable_container = SolContainer::from_bytes(&bytes)
+        .map_err(|e| PyException::new_err(format!("Failed to parse container: {}", e)))?;
+    
+    match container.get_type() {
+        ContainerType::Map => {
+            let dict = PyDict::new(py);
+            
+            // Get all fields from the Map container
+            let fields = mutable_container.get_all_fields()
+                .map_err(|e| PyException::new_err(format!("Failed to get fields: {}", e)))?;
+            
+            // Build a dictionary from all fields
+            for field in fields {
+                let key = field.name.unwrap_or("unnamed".to_string());
+                let python_value = container_field_to_python(py, &field.field_type)?;
+                dict.set_item(key, python_value)?;
+            }
+            
+            Ok(dict.into())
+        }
+        ContainerType::Stream => {
+            let list = PyList::empty(py);
+            
+            // Get all fields from the Stream container
+            let fields = mutable_container.get_all_fields()
+                .map_err(|e| PyException::new_err(format!("Failed to get fields: {}", e)))?;
+            
+            for field in fields {
+                let python_value = container_field_to_python(py, &field.field_type)?;
+                list.append(python_value)?;
+            }
+            
+            Ok(list.into())
+        }
+    }
+}
+
+/// Convert a ContainerFieldType to a Python object
+fn container_field_to_python(py: Python, field_type: &ContainerFieldType) -> PyResult<PyObject> {
+    
+    match field_type {
+        ContainerFieldType::Null => Ok(py.None()),
+        ContainerFieldType::Boolean(b) => Ok(b.to_object(py)),
+        ContainerFieldType::Uint8(n) => Ok((*n as i32).to_object(py)),
+        ContainerFieldType::Int8(n) => Ok((*n as i32).to_object(py)),
+        ContainerFieldType::Uint16(n) => Ok((*n as i32).to_object(py)),
+        ContainerFieldType::Int16(n) => Ok((*n as i32).to_object(py)),
+        ContainerFieldType::Uint32(n) => Ok((*n as i64).to_object(py)),
+        ContainerFieldType::Int32(n) => Ok(n.to_object(py)),
+        ContainerFieldType::Uint64(n) => Ok((*n as i64).to_object(py)),
+        ContainerFieldType::Int64(n) => Ok(n.to_object(py)),
+        ContainerFieldType::Char(c) => Ok(c.to_string().to_object(py)),
+        ContainerFieldType::Wchar(c) => Ok(c.to_string().to_object(py)),
+        ContainerFieldType::Float(f) => Ok((*f as f64).to_object(py)),
+        ContainerFieldType::Double(f) => Ok(f.to_object(py)),
+        ContainerFieldType::String(s) => Ok(s.to_object(py)),
+        ContainerFieldType::ByteArray(bytes) => Ok(bytes.as_slice().to_object(py)),
+        ContainerFieldType::Container(sub_container) => {
+            // Recursively convert nested containers
+            sdt_container_to_python(py, sub_container)
+        }
+        ContainerFieldType::Smf(bytes) => Ok(bytes.as_slice().to_object(py)),
+        ContainerFieldType::Destination(dest) => Ok(dest.to_object(py)),
+    }
+}
+
+/// Convert SDT container bytes back to Python object
+#[pyfunction] 
+fn loads(py: Python, data: &[u8]) -> PyResult<PyObject> {
+    // Try to deserialize using SolContainer::from_bytes
+    match SolContainer::from_bytes(data) {
+        Ok(container) => {
+            // Convert the container back to Python objects
+            sdt_container_to_python(py, &container)
+        }
+        Err(e) => {
+            Err(PyException::new_err(format!("Failed to deserialize SDT container: {}", e)))
+        }
+    }
+}
+
+/// Convert a Python object to a SolContainer
+fn python_to_sdt_container(obj: &PyAny) -> PyResult<SolContainer> {
+    use pyo3::types::*;
+    
+    if let Ok(dict) = obj.downcast::<PyDict>() {
+        python_dict_to_sdt_map(dict)
+    } else if let Ok(list) = obj.downcast::<PyList>() {
+        python_list_to_sdt_stream(list)
+    } else if let Ok(tuple) = obj.downcast::<PyTuple>() {
+        // Convert tuple to list-like stream
+        let list: Vec<&PyAny> = tuple.iter().collect();
+        python_sequence_to_sdt_stream(&list)
+    } else {
+        Err(PyException::new_err(format!(
+            "SDT only supports dict or list at the top level, not: {}",
+            obj.get_type().name().unwrap_or("unknown")
+        )))
+    }
+}
+
+fn python_dict_to_sdt_map(dict: &PyDict) -> PyResult<SolContainer> {
+    let estimated_size = estimate_dict_size(dict);
+    let mut container = SolContainer::create_map(estimated_size)
+        .map_err(|e| PyException::new_err(format!("Failed to create map container: {}", e)))?;
+    
+    for (key, value) in dict {
+        let key_str = key.extract::<String>()?;
+        add_python_value_to_container(&mut container, value, Some(&key_str))?;
+    }
+    
+    Ok(container)
+}
+
+fn python_list_to_sdt_stream(list: &PyList) -> PyResult<SolContainer> {
+    let items: Vec<&PyAny> = list.iter().collect();
+    python_sequence_to_sdt_stream(&items)
+}
+
+fn python_sequence_to_sdt_stream(items: &[&PyAny]) -> PyResult<SolContainer> {
+    let estimated_size = estimate_sequence_size(items);
+    let mut container = SolContainer::create_stream(estimated_size)
+        .map_err(|e| PyException::new_err(format!("Failed to create stream container: {}", e)))?;
+    
+    for item in items {
+        add_python_value_to_container(&mut container, item, None)?;
+    }
+    
+    Ok(container)
+}
+
+fn add_python_value_to_container(container: &mut SolContainer, obj: &PyAny, name: Option<&str>) -> PyResult<()> {
+    use pyo3::types::*;
+    use rsolace::types::SolClientReturnCode;
+    
+    let result = if obj.is_none() {
+        container.add_null(name)
+    } else if let Ok(b) = obj.extract::<bool>() {
+        container.add_boolean(b, name)
+    } else if let Ok(i) = obj.extract::<i64>() {
+        if i >= i32::MIN as i64 && i <= i32::MAX as i64 {
+            container.add_int32(i as i32, name)
+        } else {
+            container.add_int64(i, name)
+        }
+    } else if let Ok(f) = obj.extract::<f64>() {
+        container.add_double(f, name)
+    } else if let Ok(s) = obj.extract::<String>() {
+        container.add_string(&s, name)
+    } else if let Ok(bytes) = obj.extract::<Vec<u8>>() {
+        container.add_byte_array(&bytes, name)
+    } else if let Ok(dict) = obj.downcast::<PyDict>() {
+        let sub_container = python_dict_to_sdt_map(dict)?;
+        container.add_container(&sub_container, name)
+    } else if let Ok(list) = obj.downcast::<PyList>() {
+        let sub_container = python_list_to_sdt_stream(list)?;
+        container.add_container(&sub_container, name)
+    } else if let Ok(tuple) = obj.downcast::<PyTuple>() {
+        let items: Vec<&PyAny> = tuple.iter().collect();
+        let sub_container = python_sequence_to_sdt_stream(&items)?;
+        container.add_container(&sub_container, name)
+    } else {
+        return Err(PyException::new_err(format!(
+            "Unsupported type: {}",
+            obj.get_type().name().unwrap_or("unknown")
+        )));
+    };
+
+    if result != SolClientReturnCode::Ok {
+        return Err(PyException::new_err(format!(
+            "Failed to add value to container: {:?}",
+            result
+        )));
+    }
+    
+    Ok(())
+}
+
+fn estimate_dict_size(dict: &PyDict) -> usize {
+    let base_size = std::cmp::max(1024, dict.len() * 128);
+    // Add extra space for nested structures
+    base_size * 2
+}
+
+fn estimate_sequence_size(items: &[&PyAny]) -> usize {
+    let base_size = std::cmp::max(1024, items.len() * 64);
+    // Add extra space for nested structures  
+    base_size * 2
+}
+
+
 #[pymethods]
 impl Client {
     #[new]
@@ -1587,5 +1798,7 @@ fn pyrsolace(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<CacheStatus>()?;
     m.add_class::<CacheRequestFlag>()?;
     m.add_function(wrap_pyfunction!(init_tracing_logger, m)?)?;
+    m.add_function(wrap_pyfunction!(dumps, m)?)?;
+    m.add_function(wrap_pyfunction!(loads, m)?)?;
     Ok(())
 }

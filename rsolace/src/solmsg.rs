@@ -1,3 +1,4 @@
+use super::solcontainer::SolContainer;
 use super::types::{
     SolClientCacheStatus, SolClientDeliveryMode, SolClientDestType, SolClientReturnCode,
 };
@@ -601,6 +602,251 @@ impl SolMsg {
             // assert!(!data_ptr.is_null());
             let s = std::slice::from_raw_parts(data_ptr as *const u8, data_len as usize);
             Ok(Cow::Borrowed(s))
+        }
+    }
+
+    pub fn set_binary_attachment_container(&mut self, container: &SolContainer) -> SolClientReturnCode {
+        unsafe {
+            let rt_code = rsolace_sys::solClient_msg_setBinaryAttachmentContainer(
+                self.msg_p,
+                container.get_ptr(),
+            );
+            SolClientReturnCode::from_i32(rt_code).unwrap()
+        }
+    }
+
+    pub fn get_binary_attachment_container_size(&self) -> Result<u32, SolMsgError> {
+        let mut size: usize = 0;
+        unsafe {
+            let rt_code = rsolace_sys::solClient_msg_getBinaryAttachmentContainerSize(
+                self.msg_p,
+                &mut size,
+            );
+            ensure!(
+                rt_code == (SolClientReturnCode::Ok as i32),
+                GetAttrSnafu {
+                    attr: "binary_attachment_container_size".to_string(),
+                }
+            );
+            Ok(size as u32)
+        }
+    }
+
+    pub fn set_user_property_container(&mut self, container: &SolContainer) -> SolClientReturnCode {
+        unsafe {
+            let rt_code = rsolace_sys::solClient_msg_setUserPropertyMap(
+                self.msg_p,
+                container.get_ptr(),
+            );
+            SolClientReturnCode::from_i32(rt_code).unwrap()
+        }
+    }
+
+    /// Extract a Map container from the binary attachment
+    pub fn get_binary_attachment_map(&self) -> Result<SolContainer, SolMsgError> {
+        let mut container_p: rsolace_sys::solClient_opaqueContainer_pt = null_mut();
+        
+        unsafe {
+            let rt_code = rsolace_sys::solClient_msg_getBinaryAttachmentMap(
+                self.msg_p,
+                &mut container_p,
+            );
+            
+            ensure!(
+                rt_code == (SolClientReturnCode::Ok as i32),
+                GetAttrSnafu {
+                    attr: "binary_attachment_map".to_string(),
+                }
+            );
+            
+            // Instead of trying to use the C API container directly,
+            // create a new container and copy the data from the C API container
+            // This avoids buffer ownership issues
+            
+            // First, get the actual buffer size from the C API container
+            let mut actual_size: usize = 0;
+            let size_rt_code = rsolace_sys::solClient_container_getSize(container_p, &mut actual_size);
+            
+            if size_rt_code != (SolClientReturnCode::Ok as i32) {
+                return Err(SolMsgError::GetAttr { 
+                    attr: "container_size".to_string() 
+                });
+            }
+            
+            // Create a new container with sufficient buffer space
+            let buffer_size = actual_size.max(1024);
+            let mut new_container = SolContainer::create_map(buffer_size)
+                .map_err(|_| SolMsgError::GetAttr {
+                    attr: "failed to create new map container".to_string(),
+                })?;
+            
+            // Copy fields from the C API container to our new container
+            Self::copy_container_fields(container_p, &mut new_container)
+                .map_err(|_| SolMsgError::GetAttr {
+                    attr: "failed to copy container fields".to_string(),
+                })?;
+            
+            Ok(new_container)
+        }
+    }
+
+    /// Copy all fields from a C API container to a Rust-managed container
+    fn copy_container_fields(
+        src_container_p: rsolace_sys::solClient_opaqueContainer_pt,
+        dest_container: &mut SolContainer,
+    ) -> Result<(), ()> {
+        use std::ffi::CStr;
+        use std::mem;
+        
+        unsafe {
+            // Rewind the source container to start from the beginning
+            let rewind_result = rsolace_sys::solClient_container_rewind(src_container_p);
+            if rewind_result != (SolClientReturnCode::Ok as i32) {
+                return Err(());
+            }
+            
+            // Iterate through all fields in the source container
+            while rsolace_sys::solClient_container_hasNextField(src_container_p) != 0 {
+                let mut field: rsolace_sys::solClient_field_t = mem::zeroed();
+                let mut name_ptr: *const i8 = std::ptr::null();
+                
+                let get_result = rsolace_sys::solClient_container_getNextField(
+                    src_container_p,
+                    &mut field,
+                    mem::size_of::<rsolace_sys::solClient_field_t>(),
+                    &mut name_ptr,
+                );
+                
+                if get_result != (SolClientReturnCode::Ok as i32) {
+                    break;
+                }
+                
+                // Get field name
+                let field_name = if name_ptr.is_null() {
+                    None
+                } else {
+                    CStr::from_ptr(name_ptr).to_str().ok()
+                };
+                
+                // Copy field based on its type
+                // Map different sized integers to the methods we have available
+                let add_result = match field.type_ {
+                    rsolace_sys::solClient_fieldType_SOLCLIENT_BOOL => {
+                        dest_container.add_boolean(field.value.boolean != 0, field_name)
+                    },
+                    // Map all integer types to int32/int64 based on size
+                    rsolace_sys::solClient_fieldType_SOLCLIENT_UINT8 => {
+                        dest_container.add_int32(field.value.uint8 as i32, field_name)
+                    },
+                    rsolace_sys::solClient_fieldType_SOLCLIENT_INT8 => {
+                        dest_container.add_int32(field.value.int8 as i32, field_name)
+                    },
+                    rsolace_sys::solClient_fieldType_SOLCLIENT_UINT16 => {
+                        dest_container.add_int32(field.value.uint16 as i32, field_name)
+                    },
+                    rsolace_sys::solClient_fieldType_SOLCLIENT_INT16 => {
+                        dest_container.add_int32(field.value.int16 as i32, field_name)
+                    },
+                    rsolace_sys::solClient_fieldType_SOLCLIENT_UINT32 => {
+                        dest_container.add_int64(field.value.uint32 as i64, field_name)
+                    },
+                    rsolace_sys::solClient_fieldType_SOLCLIENT_INT32 => {
+                        dest_container.add_int32(field.value.int32, field_name)
+                    },
+                    rsolace_sys::solClient_fieldType_SOLCLIENT_UINT64 => {
+                        dest_container.add_int64(field.value.uint64 as i64, field_name)
+                    },
+                    rsolace_sys::solClient_fieldType_SOLCLIENT_INT64 => {
+                        dest_container.add_int64(field.value.int64, field_name)
+                    },
+                    // Map floats to double
+                    rsolace_sys::solClient_fieldType_SOLCLIENT_FLOAT => {
+                        dest_container.add_double(field.value.float32 as f64, field_name)
+                    },
+                    rsolace_sys::solClient_fieldType_SOLCLIENT_DOUBLE => {
+                        dest_container.add_double(field.value.float64, field_name)
+                    },
+                    rsolace_sys::solClient_fieldType_SOLCLIENT_STRING => {
+                        if !field.value.string.is_null() {
+                            if let Ok(s) = CStr::from_ptr(field.value.string).to_str() {
+                                dest_container.add_string(s, field_name)
+                            } else {
+                                SolClientReturnCode::Fail
+                            }
+                        } else {
+                            SolClientReturnCode::Fail
+                        }
+                    },
+                    rsolace_sys::solClient_fieldType_SOLCLIENT_BYTEARRAY => {
+                        if !field.value.bytearray.is_null() && field.length > 0 {
+                            let slice = std::slice::from_raw_parts(
+                                field.value.bytearray as *const u8, 
+                                field.length as usize
+                            );
+                            dest_container.add_byte_array(slice, field_name)
+                        } else {
+                            SolClientReturnCode::Fail
+                        }
+                    },
+                    rsolace_sys::solClient_fieldType_SOLCLIENT_NULL => {
+                        dest_container.add_null(field_name)
+                    },
+                    _ => {
+                        // Skip unsupported field types for now
+                        SolClientReturnCode::Ok
+                    }
+                };
+                
+                if add_result != SolClientReturnCode::Ok {
+                    return Err(());
+                }
+            }
+        }
+        
+        Ok(())
+    }
+
+    /// Extract a Stream container from the binary attachment
+    pub fn get_binary_attachment_stream(&self) -> Result<SolContainer, SolMsgError> {
+        let mut container_p: rsolace_sys::solClient_opaqueContainer_pt = null_mut();
+        
+        unsafe {
+            let rt_code = rsolace_sys::solClient_msg_getBinaryAttachmentStream(
+                self.msg_p,
+                &mut container_p,
+            );
+            
+            ensure!(
+                rt_code == (SolClientReturnCode::Ok as i32),
+                GetAttrSnafu {
+                    attr: "binary_attachment_stream".to_string(),
+                }
+            );
+            
+            // Get the actual buffer size from the C API container
+            let mut actual_size: usize = 0;
+            let size_rt_code = rsolace_sys::solClient_container_getSize(container_p, &mut actual_size);
+            
+            if size_rt_code != (SolClientReturnCode::Ok as i32) {
+                return Err(SolMsgError::GetAttr { 
+                    attr: "container_size".to_string() 
+                });
+            }
+            
+            // Create a new Stream container with sufficient buffer space
+            let buffer_size = actual_size.max(1024);
+            let mut new_container = SolContainer::create_stream(buffer_size)
+                .map_err(|_| SolMsgError::GetAttr {
+                    attr: "failed to create new stream container".to_string(),
+                })?;
+            
+            // Copy fields from the C API container to our new container
+            Self::copy_container_fields(container_p, &mut new_container)
+                .map_err(|_| SolMsgError::GetAttr {
+                    attr: "failed to copy container fields".to_string(),
+                })?;
+            
+            Ok(new_container)
         }
     }
 

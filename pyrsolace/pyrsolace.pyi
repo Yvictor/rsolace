@@ -1,4 +1,4 @@
-from typing import Callable, Optional, List
+from typing import Callable, Optional, List, Any
 from enum import Enum
 
 class LogLevel(Enum):
@@ -201,3 +201,69 @@ class Client:
     def get_async_request_receiver(self) -> AsyncMsgReceiver: ...
     def get_async_p2p_receiver(self) -> AsyncMsgReceiver: ...
     def get_async_event_receiver(self) -> AsyncEventReceiver: ...
+
+# SDT (Structured Data Types) functions
+def dumps(obj: Any) -> bytes:
+    """
+    Convert Python object to SDT container bytes.
+
+    Supports the following type mappings:
+    - dict -> SDT Map
+    - list/tuple -> SDT Stream
+    - str -> String field
+    - int -> Int32/Int64 field (auto-detected by range)
+    - float -> Double field
+    - bool -> Boolean field
+    - bytes -> ByteArray field
+    - None -> Null field
+    - Nested structures are supported
+
+    Args:
+        obj: Python object to convert
+
+    Returns:
+        bytes: SDT container serialized as bytes
+
+    Raises:
+        Exception: If object type is not supported
+
+    Example:
+        >>> data = {"user_id": 123, "items": [1, 2, 3]}
+        >>> sdt_bytes = dumps(data)
+        >>> len(sdt_bytes) > 0
+        True
+    """
+    ...
+
+def loads(data: bytes) -> Any:
+    """
+    Convert SDT container bytes back to Python object.
+
+    This function reconstructs Python objects from SDT container bytes,
+    with the following type mappings:
+    - SDT Map -> dict
+    - SDT Stream -> list
+    - String field -> str
+    - Int32/Int64 field -> int
+    - Double field -> float
+    - Boolean field -> bool
+    - ByteArray field -> bytes
+    - Null field -> None
+
+    Args:
+        data: SDT container bytes to convert
+
+    Returns:
+        Any: Reconstructed Python object
+
+    Raises:
+        Exception: If SDT format is invalid or not yet implemented
+
+    Example:
+        >>> original = {"key": "value", "num": 42}
+        >>> sdt_bytes = dumps(original)
+        >>> reconstructed = loads(sdt_bytes)
+        >>> reconstructed == original
+        True
+    """
+    ...
