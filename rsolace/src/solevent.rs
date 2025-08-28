@@ -1,5 +1,6 @@
 use super::types::SolClientSessionEvent;
-use failure::Error;
+use snafu::prelude::{ensure, Snafu};
+use snafu::ResultExt;
 use std::ffi::CStr;
 
 #[derive(Debug, Clone)]
@@ -8,6 +9,16 @@ pub struct SolEvent {
     pub response_code: u32,
     pub info: String,
     // correlation: String,
+}
+
+#[derive(Debug, Snafu)]
+pub enum SolEventError {
+    #[snafu(display("Null event pointer"))]
+    NullEventPtr,
+    #[snafu(display("Null info pointer"))]
+    NullInfoPtr,
+    #[snafu(display("Info UTF-8 error"))]
+    InfoUtf8 { source: std::str::Utf8Error },
 }
 
 impl SolEvent {
@@ -20,19 +31,24 @@ impl SolEvent {
     }
 
     /// # Safety
-    ///
-    /// This function should not be called by check  event_ptr is valid?.
+    /// 呼叫端需確保 `event_p` 來源生命週期有效。
     pub unsafe fn from_ptr(
         event_p: rsolace_sys::solClient_session_eventCallbackInfo_pt,
-    ) -> Result<SolEvent, Error> {
-        unsafe {
-            let event = *event_p;
-            Ok(SolEvent {
-                session_event: event.sessionEvent.into(),
-                response_code: event.responseCode,
-                info: CStr::from_ptr(event.info_p).to_str().unwrap().to_owned(),
-            })
-        }
+    ) -> Result<SolEvent, SolEventError> {
+        ensure!(!event_p.is_null(), NullEventPtrSnafu);
+        let event = *event_p;
+
+        ensure!(!event.info_p.is_null(), NullInfoPtrSnafu);
+        let info = CStr::from_ptr(event.info_p)
+            .to_str()
+            .context(InfoUtf8Snafu)?
+            .to_owned();
+
+        Ok(SolEvent {
+            session_event: event.sessionEvent.into(),
+            response_code: event.responseCode,
+            info,
+        })
     }
 
     pub fn get_session_event_string(&self) -> String {
