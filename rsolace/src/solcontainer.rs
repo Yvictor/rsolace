@@ -80,6 +80,9 @@ pub enum SolContainerError {
 impl SolContainer {
     /// Create a new Map container with specified buffer size
     pub fn create_map(size: usize) -> Result<SolContainer, SolContainerError> {
+        // 確保 Solace 庫已初始化
+        crate::ensure_solace_initialized();
+
         if size == 0 {
             return Err(SolContainerError::BufferTooSmall { size });
         }
@@ -113,6 +116,9 @@ impl SolContainer {
 
     /// Create a new Stream container with specified buffer size
     pub fn create_stream(size: usize) -> Result<SolContainer, SolContainerError> {
+        // 確保 Solace 庫已初始化
+        crate::ensure_solace_initialized();
+
         if size == 0 {
             return Err(SolContainerError::BufferTooSmall { size });
         }

@@ -70,6 +70,9 @@ impl Destination {
 
 impl SolMsg {
     pub fn new() -> Result<SolMsg, SolMsgError> {
+        // 確保 Solace 庫已初始化（遵循官方文檔要求）
+        crate::ensure_solace_initialized();
+
         let mut msg_p: rsolace_sys::solClient_opaqueMsg_pt = null_mut();
         unsafe {
             let rt_code = rsolace_sys::solClient_msg_alloc(&mut msg_p);
@@ -510,7 +513,12 @@ impl SolMsg {
     pub fn get_user_prop(&self, key: &str) -> Result<String, SolMsgError> {
         match self.user_prop_p {
             Some(user_prop_p) => {
-                let key_c = CString::new(key).unwrap();
+                // 處理 CString 轉換錯誤，避免 panic
+                let key_c = CString::new(key).map_err(|_| {
+                    tracing::error!("Invalid key: contains null byte");
+                    SolMsgError::GetAttr { attr: key.to_string() }
+                })?;
+
                 let mut value_c: *const std::os::raw::c_char = null_mut();
                 let rt_code = unsafe {
                     rsolace_sys::solClient_container_getStringPtr(
@@ -519,13 +527,30 @@ impl SolMsg {
                         key_c.as_ptr(),
                     )
                 };
+
+                tracing::trace!(
+                    "get_user_prop: key='{}', rt_code={:?}, value_ptr={:?}",
+                    key,
+                    SolClientReturnCode::from_i32(rt_code),
+                    value_c
+                );
+
                 ensure!(
                     rt_code == SolClientReturnCode::Ok as i32,
                     GetAttrSnafu { attr: key }
                 );
+
+                // 額外的安全檢查：確保指針非空
+                if value_c.is_null() {
+                    tracing::error!("get_user_prop: value_c is null for key '{}'", key);
+                    return Err(SolMsgError::GetAttr { attr: key.to_string() });
+                }
+
                 let value = unsafe { CStr::from_ptr(value_c) }
                     .to_str()
                     .context(GetAttrUtf8Snafu { attr: key })?;
+
+                tracing::trace!("get_user_prop: key='{}', value='{}'", key, value);
                 Ok(value.to_string())
                 // rsolace_sys::solClient_container_getString(container_p, string, size, name)
             }
@@ -534,34 +559,69 @@ impl SolMsg {
     }
 
     pub fn set_user_prop(&mut self, key: &str, value: &str, map_size: u32) -> SolClientReturnCode {
-        let key_c = CString::new(key).unwrap();
-        let value_c = CString::new(value).unwrap();
+        // 處理 CString 轉換錯誤，避免 panic
+        let key_c = match CString::new(key) {
+            Ok(s) => s,
+            Err(_) => {
+                tracing::error!("set_user_prop: Invalid key contains null byte");
+                return SolClientReturnCode::Fail;
+            }
+        };
+        let value_c = match CString::new(value) {
+            Ok(s) => s,
+            Err(_) => {
+                tracing::error!("set_user_prop: Invalid value contains null byte");
+                return SolClientReturnCode::Fail;
+            }
+        };
+
+        tracing::trace!("set_user_prop: key='{}', value='{}', map_size={}", key, value, map_size);
+
         match self.user_prop_p {
             Some(use_prop_p) => unsafe {
+                tracing::trace!("set_user_prop: using existing container {:?}", use_prop_p);
                 let rt_code = rsolace_sys::solClient_container_addString(
                     use_prop_p,
                     value_c.as_ptr(),
                     key_c.as_ptr(),
                 );
-                SolClientReturnCode::from_i32(rt_code).unwrap()
+                let ret = SolClientReturnCode::from_i32(rt_code).unwrap_or(SolClientReturnCode::Fail);
+                tracing::trace!("set_user_prop: addString returned {:?}", ret);
+                ret
             },
             None => unsafe {
+                tracing::trace!("set_user_prop: creating new container");
                 let mut user_prop_p: rsolace_sys::solClient_opaqueContainer_pt = null_mut();
                 let rt_code = rsolace_sys::solClient_msg_createUserPropertyMap(
                     self.msg_p,
                     &mut user_prop_p,
                     map_size,
                 );
+                tracing::trace!(
+                    "set_user_prop: createUserPropertyMap returned {:?}, container={:?}",
+                    SolClientReturnCode::from_i32(rt_code),
+                    user_prop_p
+                );
+
                 if rt_code == (SolClientReturnCode::Ok as i32) {
+                    if user_prop_p.is_null() {
+                        tracing::error!("set_user_prop: createUserPropertyMap succeeded but returned null pointer");
+                        return SolClientReturnCode::Fail;
+                    }
+
                     self.user_prop_p = Some(user_prop_p);
                     let rt_code = rsolace_sys::solClient_container_addString(
                         self.user_prop_p.unwrap(),
                         value_c.as_ptr(),
                         key_c.as_ptr(),
                     );
-                    SolClientReturnCode::from_i32(rt_code).unwrap()
+                    let ret = SolClientReturnCode::from_i32(rt_code).unwrap_or(SolClientReturnCode::Fail);
+                    tracing::trace!("set_user_prop: addString (new container) returned {:?}", ret);
+                    ret
                 } else {
-                    SolClientReturnCode::from_i32(rt_code).unwrap()
+                    let ret = SolClientReturnCode::from_i32(rt_code).unwrap_or(SolClientReturnCode::Fail);
+                    tracing::error!("set_user_prop: createUserPropertyMap failed with {:?}", ret);
+                    ret
                 }
             },
         }
@@ -997,8 +1057,8 @@ impl SolMsgBuilder {
         self
     }
 
-    pub fn build(self) -> SolMsg {
-        let mut m = SolMsg::new().unwrap();
+    pub fn build(self) -> Result<SolMsg, SolMsgError> {
+        let mut m = SolMsg::new()?;
         m.set_delivery_mode(self.delivery_mode);
         if let Some(dest) = self.destination {
             m.set_destination(&dest);
@@ -1027,7 +1087,7 @@ impl SolMsgBuilder {
         if let Some(binary_attachment) = self.binary_attachment {
             m.set_binary_attachment(&binary_attachment);
         }
-        m
+        Ok(m)
     }
 }
 
@@ -1046,7 +1106,7 @@ mod tests {
     #[fixture]
     pub fn solmsg() -> SolMsg {
         // SolMsg::new().unwrap()
-        SolMsgBuilder::new().build()
+        SolMsgBuilder::new().build().expect("Failed to build SolMsg in test fixture")
     }
 
     #[test]
@@ -1177,7 +1237,8 @@ mod tests {
     #[rstest]
     fn solmsg_cache_status_workable(solmsg: SolMsg) {
         let cache_status = solmsg.get_cache_status();
-        assert_eq!(cache_status, SolClientCacheStatus::Invalid);
+        // 在自動初始化後，新消息的 cache status 是 Live 而不是 Invalid
+        assert_eq!(cache_status, SolClientCacheStatus::Live);
         let is_cache = solmsg.is_cache();
         assert_eq!(is_cache, false);
     }
@@ -1247,7 +1308,8 @@ mod tests {
             .with_class_of_service(1)
             .with_user_prop("ct", "bytes/msgpack")
             .with_binary_attachment(vec![0, 1, 2, 3, 4])
-            .build();
+            .build()
+            .unwrap();
 
         assert!(solmsg.is_delivery_to_one());
         assert_eq!(solmsg.get_topic().unwrap(), "TIC/v1/test");
@@ -1270,7 +1332,8 @@ mod tests {
                 .with_topic("test/topic")
                 .with_correlation_id("test-corr-id")
                 .with_binary_attachment(b"test data".to_vec())
-                .build();
+                .build()
+                .unwrap();
 
             // Send the message to another thread
             tx.send(msg).unwrap();

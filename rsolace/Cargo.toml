@@ -1,6 +1,6 @@
 [package]
 name = "rsolace"
-version = "0.3.4"
+version = "0.3.5"
 edition = "2021"
 description = "Solace bindings for the Rust"
 keywords = ["solace"]

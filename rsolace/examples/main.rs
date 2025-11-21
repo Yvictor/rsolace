@@ -83,7 +83,8 @@ fn main() {
             let msg = SolMsgBuilder::new()
                 .with_topic("api/v1/test")
                 .as_delivery_to_one(true)
-                .build();
+                .build()
+                .unwrap();
             let rt = solclient.send_msg(&msg);
             tracing::info!("send msg: {:?}", rt);
             // let mut msgs = vec![SolMsg::new().unwrap(), SolMsg::new().unwrap()];
@@ -91,12 +92,12 @@ fn main() {
             //     msg.set_topic(format!("api/v1/test/{}", i).as_str());
             // }
             let msgs = vec![
-                SolMsgBuilder::new().with_topic("api/v1/test/0").build(),
-                SolMsgBuilder::new().with_topic("api/v1/test/1").build(),
+                SolMsgBuilder::new().with_topic("api/v1/test/0").build().unwrap(),
+                SolMsgBuilder::new().with_topic("api/v1/test/1").build().unwrap(),
             ];
-            let rt = solclient.send_multiple_msg(&msgs.iter().map(|msg| msg).collect::<Vec<_>>());
+            let rt = solclient.send_multiple_msg(&msgs.iter().collect::<Vec<_>>());
             tracing::info!("send multiple msg: {:?}", rt);
-            let msg = SolMsgBuilder::new().with_topic("api/v1/test").build();
+            let msg = SolMsgBuilder::new().with_topic("api/v1/test").build().unwrap();
             let res = solclient.send_request(&msg, 0);
             tracing::info!("send request msg: {:?}", res);
             tracing::info!("done");

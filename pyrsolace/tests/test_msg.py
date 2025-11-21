@@ -37,3 +37,22 @@ def test_msg_various_combinations(topic, data, corr_id):
     assert msg.topic == topic
     assert msg.data == data
     assert msg.corr_id == corr_id
+
+
+def test_msg_with_all_parameters():
+    """Test message creation with all parameters"""
+    msg = pyrsolace.Msg(
+        topic="test/topic",
+        data=b"test data",
+        corr_id="test-123",
+        reply_topic="test/reply",
+        is_reply=False,
+        eligible=True,
+        cos=1,
+        is_delivery_to_one=True
+    )
+
+    assert msg.topic == "test/topic"
+    assert msg.data == b"test data"
+    assert msg.corr_id == "test-123"
+    assert msg.reply_topic == "test/reply"

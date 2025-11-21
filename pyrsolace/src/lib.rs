@@ -66,6 +66,10 @@ impl MsgReceiver {
             self.0.recv().map_err(|e| ReceiverError(e).into()).map(Msg::new)
         })
     }
+
+    fn len(&self) -> usize {
+        self.0.len()
+    }
 }
 
 #[pyclass]
@@ -85,6 +89,10 @@ impl AsyncMsgReceiver {
             })?;
             Ok(Python::with_gil(|py| Msg::new(msg).into_py(py)))
         })
+    }
+
+    fn len(&self) -> usize {
+        self.0.len()
     }
 }
 
@@ -839,6 +847,10 @@ impl EventReceiver {
             self.0.recv().map_err(|e| ReceiverError(e).into()).map(Event::new)
         })
     }
+
+    fn len(&self) -> usize {
+        self.0.len()
+    }
 }
 
 #[pyclass]
@@ -858,6 +870,10 @@ impl AsyncEventReceiver {
             })?;
             Ok(Python::with_gil(|py| Event::new(event).into_py(py)))
         })
+    }
+
+    fn len(&self) -> usize {
+        self.0.len()
     }
 }
 
@@ -884,7 +900,13 @@ impl Msg {
         cos: Option<u32>,
         is_delivery_to_one: Option<bool>,
     ) -> PyResult<Self> {
-        let mut msg = SolMsg::new().unwrap();
+        // 注意：自動初始化現在在 rsolace::SolMsg::new() 中處理
+        let mut msg = SolMsg::new().map_err(|e| {
+            PyException::new_err(format!(
+                "Failed to create message: {}",
+                e
+            ))
+        })?;
         if let Some(topic) = topic {
             msg.set_topic(topic);
         }
@@ -1095,13 +1117,23 @@ impl Msg {
     }
 
     
-    fn get_user_prop(&self, key: &str) -> String {
-        self.0.get_user_prop(key).unwrap_or("".into())
+    fn get_user_prop(&self, key: &str) -> PyResult<String> {
+        self.0.get_user_prop(key).map_err(|e| {
+            PyException::new_err(format!("Failed to get user property '{}': {}", key, e))
+        })
     }
 
     #[pyo3(signature = (key, value, map_size=10))]
-    fn set_user_prop(&mut self, key: &str, value: &str, map_size: u32) {
-        self.0.set_user_prop(key, value, map_size);
+    fn set_user_prop(&mut self, key: &str, value: &str, map_size: u32) -> PyResult<ReturnCode> {
+        let ret_code = self.0.set_user_prop(key, value, map_size);
+        if ret_code == SolClientReturnCode::Ok {
+            Ok(ReturnCode(ret_code))
+        } else {
+            Err(PyException::new_err(format!(
+                "Failed to set user property '{}': {:?}",
+                key, ret_code
+            )))
+        }
     }
 
     #[setter(data)]
@@ -1147,17 +1179,17 @@ struct Client {
 
 #[pyfunction]
 #[pyo3(signature = (
-    level=LogLevel::Info(), 
-    display_line_number=false, 
-    display_thread_names=false, 
-    display_thread_ids=false, 
+    level=LogLevel::Info(),
+    display_line_number=false,
+    display_thread_names=false,
+    display_thread_ids=false,
     display_filename=false)
 )]
 fn init_tracing_logger(
-    level: LogLevel, 
-    display_line_number: bool, 
-    display_thread_names: bool, 
-    display_thread_ids: bool, 
+    level: LogLevel,
+    display_line_number: bool,
+    display_thread_names: bool,
+    display_thread_ids: bool,
     display_filename: bool
 ) {
     tracing_subscriber::fmt()
