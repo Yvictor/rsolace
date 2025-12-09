@@ -233,24 +233,24 @@ impl std::default::Default for SessionProps {
 #[derive(Debug, Copy, Clone)]
 pub struct SolClientRxCallbackInfo {
     pub callback_p: rsolace_sys::solClient_flow_rxMsgCallbackFunc_t,
-    // pub user_p: *mut ::std::os::raw::c_void,
-    pub user_p: i32,
+    // pub user_p: i32,
+    pub user_p: *mut c_void,
 }
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct SolClinetEventCallbackInfo {
     pub callback_p: rsolace_sys::solClient_session_eventCallbackFunc_t,
-    // pub user_p: *mut ::std::os::raw::c_void,
-    pub user_p: i32,
+    // pub user_p: i32,
+    pub user_p: *mut c_void,
 }
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct SolClientRxMsgCallbackInfo {
     pub callback_p: rsolace_sys::solClient_flow_rxMsgCallbackFunc_t,
-    // pub user_p: *mut ::std::os::raw::c_void,
-    pub user_p: i32,
+    // pub user_p: i32,
+    pub user_p: *mut c_void,
 }
 
 #[repr(C)]
@@ -267,15 +267,18 @@ impl From<SolClientFuncInfo> for rsolace_sys::solClient_session_createFuncInfo_t
         Self {
             rxMsgInfo: rsolace_sys::solClient_session_createRxMsgCallbackFuncInfo_t {
                 callback_p: value.rxMsgInfo.callback_p,
-                user_p: value.rxMsgInfo.user_p as *mut _,
+                // user_p: value.rxMsgInfo.user_p as *mut _,
+                user_p: value.rxMsgInfo.user_p,
             },
             eventInfo: rsolace_sys::solClient_session_createEventCallbackFuncInfo_t {
                 callback_p: value.eventInfo.callback_p,
-                user_p: value.eventInfo.user_p as *mut _,
+                // user_p: value.eventInfo.user_p as *mut _,
+                user_p: value.eventInfo.user_p,
             },
             rxInfo: rsolace_sys::solClient_session_createRxCallbackFuncInfo {
                 callback_p: null_mut(),
-                user_p: value.rxInfo.user_p as *mut _,
+                // user_p: value.rxInfo.user_p as *mut _,
+                user_p: value.rxInfo.user_p,
             },
         }
     }
@@ -550,15 +553,18 @@ impl SolClient {
         self.inner_mut().session_func_info = Some(SolClientFuncInfo {
             rxInfo: SolClientRxCallbackInfo {
                 callback_p: None,
-                user_p: user_p as i32,
+                // user_p: user_p as i32,
+                user_p,
             },
             eventInfo: SolClinetEventCallbackInfo {
                 callback_p: Some(event_receive_callback),
-                user_p: user_p as i32,
+                // user_p: user_p as i32,
+                user_p,
             },
             rxMsgInfo: SolClientRxMsgCallbackInfo {
                 callback_p: Some(message_receive_callback),
-                user_p: user_p as i32,
+                // user_p: user_p as i32,
+                user_p,
             },
         });
         let session_func_info = Some(rsolace_sys::solClient_session_createFuncInfo_t {
