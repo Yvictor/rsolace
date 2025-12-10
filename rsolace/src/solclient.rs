@@ -183,12 +183,20 @@ impl SessionProps {
         self
     }
 
-    pub fn connect_retries(mut self, connect_retries: u32) -> Self {
+    /// Set number of connection retries.
+    /// - `0`: no retries (try once and give up)
+    /// - `-1`: retry forever
+    /// - positive: retry N times
+    pub fn connect_retries(mut self, connect_retries: i32) -> Self {
         self.connect_retries = connect_retries.to_cstring();
         self
     }
 
-    pub fn reconnect_retries(mut self, reconnect_retries: u32) -> Self {
+    /// Set number of reconnection retries after connection goes down.
+    /// - `0`: no automatic reconnection
+    /// - `-1`: reconnect forever
+    /// - positive: retry N times
+    pub fn reconnect_retries(mut self, reconnect_retries: i32) -> Self {
         self.reconnect_retries = reconnect_retries.to_cstring();
         self
     }

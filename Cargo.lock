@@ -885,7 +885,7 @@ dependencies = [
 
 [[package]]
 name = "pyrsolace"
-version = "0.3.5"
+version = "0.3.7"
 dependencies = [
  "chrono",
  "crossbeam",
@@ -995,7 +995,7 @@ dependencies = [
 
 [[package]]
 name = "rsolace"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "chrono",
  "dashmap",
