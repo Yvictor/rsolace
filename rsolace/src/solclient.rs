@@ -67,10 +67,11 @@ pub struct SessionProps {
     reconnect_retries: CString,
     reconnect_retry_wait_ms: CString,
     reapply_subscriptions: CString,
+    ssl_trust_store_dir: CString,
 }
 
 impl SessionProps {
-    pub fn to_c(&self) -> [*const c_char; 37] {
+    pub fn to_c(&self) -> [*const c_char; 39] {
         [
             rsolace_sys::SOLCLIENT_SESSION_PROP_HOST.as_ptr() as *const c_char,
             self.host.as_ptr() as *const c_char,
@@ -108,6 +109,8 @@ impl SessionProps {
             self.keep_alive_int_ms.as_ptr() as *const c_char,
             rsolace_sys::SOLCLIENT_SESSION_PROP_KEEP_ALIVE_LIMIT.as_ptr() as *const c_char,
             self.keep_alive_limit.as_ptr() as *const c_char,
+            rsolace_sys::SOLCLIENT_SESSION_PROP_SSL_TRUST_STORE_DIR.as_ptr() as *const c_char,
+            self.ssl_trust_store_dir.as_ptr() as *const c_char,
             null(),
         ]
     }
@@ -210,6 +213,11 @@ impl SessionProps {
         self.reapply_subscriptions = reapply_subscriptions.to_cstring();
         self
     }
+
+    pub fn ssl_trust_store_dir(mut self, ssl_trust_store_dir: &str) -> Self {
+        self.ssl_trust_store_dir = ssl_trust_store_dir.to_cstring();
+        self
+    }
 }
 
 impl std::default::Default for SessionProps {
@@ -233,6 +241,7 @@ impl std::default::Default for SessionProps {
             reconnect_retries: 0.to_cstring(),
             reconnect_retry_wait_ms: 3000.to_cstring(),
             reapply_subscriptions: false.to_cstring(),
+            ssl_trust_store_dir: "".to_cstring(),
         }
     }
 }
