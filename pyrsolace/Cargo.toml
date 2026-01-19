@@ -1,6 +1,6 @@
 [package]
 name = "pyrsolace"
-version = "0.3.7"
+version = "0.3.8"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -16,7 +16,7 @@ kanal = "0.1"
 pyo3 = { version = "0.20", features = ["extension-module", "chrono", "abi3-py37"] }
 pyo3-asyncio = { version = "0.20", features = ["tokio-runtime"] }
 # rayon = "1.10.0"
-rsolace = { version = "0.3.7", path = "../rsolace", features = ["channel", "tokio"] }
+rsolace = { version = "0.3.8", path = "../rsolace", features = ["channel", "tokio"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"
 tokio = { version = "1.0", features = ["rt-multi-thread"] }
