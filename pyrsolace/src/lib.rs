@@ -1634,11 +1634,12 @@ impl Client {
     
 
     #[pyo3(signature = (
-        host, vpn, username, password, client_name="", connect_timeout_ms=3000, 
+        host, vpn, username, password, client_name="", connect_timeout_ms=3000,
         reconnect_retries=10, keep_alive_ms=3000, reconnect_retry_wait=3000,
-        keep_alive_limit=3, compression_level=1, connect_retries=3, 
+        keep_alive_limit=3, compression_level=1, connect_retries=3,
         reapply_subscriptions=true, generate_sender_id=false, generate_sequence_number=false,
-        generate_send_timestamps=false, generate_rcv_timestamps=false
+        generate_send_timestamps=false, generate_rcv_timestamps=false,
+        ssl_trust_store_dir=""
     ))]
     fn connect(
         &mut self,
@@ -1659,6 +1660,7 @@ impl Client {
         generate_sequence_number: bool,
         generate_send_timestamps: bool,
         generate_rcv_timestamps: bool,
+        ssl_trust_store_dir: &str,
     ) -> bool {
         let props = SessionProps::default()
             .username(username)
@@ -1677,7 +1679,8 @@ impl Client {
             .generate_sender_id(generate_sender_id)
             .generate_sequence_number(generate_sequence_number)
             .keep_alive_limit(keep_alive_limit)
-            .keep_alive_int_ms(keep_alive_ms);
+            .keep_alive_int_ms(keep_alive_ms)
+            .ssl_trust_store_dir(ssl_trust_store_dir);
         let r = self.solclient.connect(props);
         self.is_connected = true;
         r
