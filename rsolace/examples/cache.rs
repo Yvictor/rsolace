@@ -1,6 +1,7 @@
 use dotenvy::dotenv;
 use rsolace::solcache::CacheSessionProps;
-use rsolace::solclient::{SessionProps, SolClient};
+use rsolace::solclient::SolClient;
+use rsolace::SessionProps;
 use rsolace::types::SolClientLogLevel;
 use tracing_subscriber;
 

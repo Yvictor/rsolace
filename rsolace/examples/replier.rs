@@ -1,4 +1,5 @@
-use rsolace::solclient::{SessionProps, SolClient};
+use rsolace::solclient::SolClient;
+use rsolace::SessionProps;
 use rsolace::solmsg::SolMsg;
 use rsolace::types::{SolClientLogLevel, SolClientSubscribeFlags};
 use tracing_subscriber;

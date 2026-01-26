@@ -3,8 +3,11 @@ pub mod solclient;
 pub mod solcontainer;
 pub mod solevent;
 pub mod solmsg;
+pub mod solprops;
 pub mod types;
 pub mod utils;
+
+pub use solprops::SessionProps;
 
 use std::sync::Once;
 use std::ptr::null_mut;

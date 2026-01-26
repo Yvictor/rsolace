@@ -158,7 +158,7 @@ class Client:
         vpn: str,
         username: str,
         password: str,
-        client_name: Optional[str],
+        client_name: str = "",
         connect_timeout_ms: int = 3000,
         reconnect_retries: int = 10,
         keep_alive_ms: int = 3000,
@@ -171,6 +171,22 @@ class Client:
         generate_sequence_number: bool = False,
         generate_send_timestamps: bool = False,
         generate_rcv_timestamps: bool = False,
+        # SSL parameters
+        ssl_trust_store_dir: Optional[str] = None,
+        ssl_validate_certificate: Optional[bool] = None,
+        ssl_validate_certificate_date: Optional[bool] = None,
+        ssl_validate_certificate_host: Optional[bool] = None,
+        ssl_cipher_suites: Optional[str] = None,
+        ssl_excluded_protocols: Optional[str] = None,
+        ssl_client_certificate_file: Optional[str] = None,
+        ssl_client_private_key_file: Optional[str] = None,
+        ssl_client_private_key_file_password: Optional[str] = None,
+        ssl_trusted_common_name_list: Optional[str] = None,
+        # OAuth2/Authentication parameters
+        authentication_scheme: Optional[str] = None,
+        oauth2_access_token: Optional[str] = None,
+        oauth2_issuer_identifier: Optional[str] = None,
+        oidc_id_token: Optional[str] = None,
     ) -> bool: ...
     def disconnect(self) -> None: ...
     def subscribe(self, topic: str) -> ReturnCode: ...

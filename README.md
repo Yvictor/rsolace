@@ -39,7 +39,8 @@ tokio = { version = "1.28", features = ["full"] }
 ```
 
 ```rust
-use rsolace::solclient::{SessionProps, SolClient};
+use rsolace::solclient::SolClient;
+use rsolace::SessionProps;
 use rsolace::types::SolClientLogLevel;
 
 #[tokio::main]

@@ -13,7 +13,8 @@ use pyo3::types::{PyTuple, PyDict, PyList, PyBytes};
 use pyo3::exceptions::PyException;
 use pyo3_asyncio::tokio::future_into_py;
 
-use rsolace::solclient::{SessionProps, SolClient, SolClientError};
+use rsolace::solclient::{SolClient, SolClientError};
+use rsolace::SessionProps;
 use rsolace::solevent::SolEvent;
 use rsolace::solmsg::{Destination, SolMsg};
 use rsolace::solcache::CacheSessionProps;
@@ -1639,7 +1640,14 @@ impl Client {
         keep_alive_limit=3, compression_level=1, connect_retries=3,
         reapply_subscriptions=true, generate_sender_id=false, generate_sequence_number=false,
         generate_send_timestamps=false, generate_rcv_timestamps=false,
-        ssl_trust_store_dir=""
+        ssl_trust_store_dir=None,
+        ssl_validate_certificate=None, ssl_validate_certificate_date=None,
+        ssl_validate_certificate_host=None, ssl_cipher_suites=None,
+        ssl_excluded_protocols=None, ssl_client_certificate_file=None,
+        ssl_client_private_key_file=None, ssl_client_private_key_file_password=None,
+        ssl_trusted_common_name_list=None,
+        authentication_scheme=None, oauth2_access_token=None,
+        oauth2_issuer_identifier=None, oidc_id_token=None
     ))]
     fn connect(
         &mut self,
@@ -1660,9 +1668,24 @@ impl Client {
         generate_sequence_number: bool,
         generate_send_timestamps: bool,
         generate_rcv_timestamps: bool,
-        ssl_trust_store_dir: &str,
+        // SSL parameters
+        ssl_trust_store_dir: Option<&str>,
+        ssl_validate_certificate: Option<bool>,
+        ssl_validate_certificate_date: Option<bool>,
+        ssl_validate_certificate_host: Option<bool>,
+        ssl_cipher_suites: Option<&str>,
+        ssl_excluded_protocols: Option<&str>,
+        ssl_client_certificate_file: Option<&str>,
+        ssl_client_private_key_file: Option<&str>,
+        ssl_client_private_key_file_password: Option<&str>,
+        ssl_trusted_common_name_list: Option<&str>,
+        // OAuth2/Authentication parameters
+        authentication_scheme: Option<&str>,
+        oauth2_access_token: Option<&str>,
+        oauth2_issuer_identifier: Option<&str>,
+        oidc_id_token: Option<&str>,
     ) -> bool {
-        let props = SessionProps::default()
+        let mut props = SessionProps::default()
             .username(username)
             .password(password)
             .host(host)
@@ -1679,8 +1702,28 @@ impl Client {
             .generate_sender_id(generate_sender_id)
             .generate_sequence_number(generate_sequence_number)
             .keep_alive_limit(keep_alive_limit)
-            .keep_alive_int_ms(keep_alive_ms)
-            .ssl_trust_store_dir(ssl_trust_store_dir);
+            .keep_alive_int_ms(keep_alive_ms);
+
+        // Apply optional SSL parameters (pass through Option directly)
+        props = props
+            .ssl_trust_store_dir(ssl_trust_store_dir)
+            .ssl_validate_certificate(ssl_validate_certificate)
+            .ssl_validate_certificate_date(ssl_validate_certificate_date)
+            .ssl_validate_certificate_host(ssl_validate_certificate_host)
+            .ssl_cipher_suites(ssl_cipher_suites)
+            .ssl_excluded_protocols(ssl_excluded_protocols)
+            .ssl_client_certificate_file(ssl_client_certificate_file)
+            .ssl_client_private_key_file(ssl_client_private_key_file)
+            .ssl_client_private_key_file_password(ssl_client_private_key_file_password)
+            .ssl_trusted_common_name_list(ssl_trusted_common_name_list);
+
+        // Apply optional OAuth2/Authentication parameters (pass through Option directly)
+        props = props
+            .authentication_scheme(authentication_scheme)
+            .oauth2_access_token(oauth2_access_token)
+            .oauth2_issuer_identifier(oauth2_issuer_identifier)
+            .oidc_id_token(oidc_id_token);
+
         let r = self.solclient.connect(props);
         self.is_connected = true;
         r

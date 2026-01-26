@@ -28,7 +28,8 @@ tokio = { version = "1.28", features = ["full"] }
 ### Async Example
 
 ```rust
-use rsolace::solclient::{SessionProps, SolClient};
+use rsolace::solclient::SolClient;
+use rsolace::SessionProps;
 use rsolace::solmsg::SolMsg;
 use rsolace::types::SolClientLogLevel;
 
@@ -80,7 +81,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Sync Example
 
 ```rust
-use rsolace::solclient::{SessionProps, SolClient};
+use rsolace::solclient::SolClient;
+use rsolace::SessionProps;
 use rsolace::types::SolClientLogLevel;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
