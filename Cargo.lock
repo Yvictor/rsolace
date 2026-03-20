@@ -68,15 +68,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b8e56985ec62d17e9c1001dc89c88ecd7dc08e47eba5ec7c29c7b5eeecde967"
 
 [[package]]
-name = "branches"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f11502672c5570f77f6bdf573332483f8475bab6a7fda00f1fae8ddb5a6245c0"
-dependencies = [
- "rustc_version",
-]
-
-[[package]]
 name = "bumpalo"
 version = "3.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -602,10 +593,9 @@ dependencies = [
 
 [[package]]
 name = "kanal"
-version = "0.2.0-beta1"
-source = "git+https://github.com/fereidani/kanal?rev=9a4b98d#9a4b98d570258410fa07c5329e3c4499533b1e92"
+version = "0.1.1"
+source = "git+https://github.com/fereidani/kanal?rev=dc47624#dc47624cc892d280873703b3333698587bd8edc3"
 dependencies = [
- "branches",
  "cacheguard",
  "futures-core",
  "lock_api",
@@ -901,7 +891,7 @@ dependencies = [
 
 [[package]]
 name = "pyrsolace"
-version = "0.3.9"
+version = "0.3.10"
 dependencies = [
  "chrono",
  "crossbeam",
@@ -1011,7 +1001,7 @@ dependencies = [
 
 [[package]]
 name = "rsolace"
-version = "0.3.9"
+version = "0.3.10"
 dependencies = [
  "chrono",
  "dashmap",
