@@ -1,6 +1,6 @@
 [package]
 name = "rsolace"
-version = "0.3.9"
+version = "0.3.10"
 edition = "2021"
 description = "Solace bindings for the Rust"
 keywords = ["solace"]
@@ -12,7 +12,7 @@ repository = "https://github.com/Yvictor/rsolace"
 
 [dependencies]
 chrono = "0.4.26"
-kanal = { version = "0.1", optional = true}
+kanal = { git = "https://github.com/fereidani/kanal", rev = "9a4b98d", optional = true }
 dashmap = "5.4.0"
 enum_primitive = "0.1.1"
 rsolace-sys = { version = "0.2.1", path = "../rsolace-sys" }
