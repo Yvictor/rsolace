@@ -12,7 +12,7 @@ repository = "https://github.com/Yvictor/rsolace"
 
 [dependencies]
 chrono = "0.4.26"
-kanal = { git = "https://github.com/fereidani/kanal", rev = "9a4b98d", optional = true }
+kanal = { git = "https://github.com/fereidani/kanal", rev = "dc47624", optional = true }
 dashmap = "5.4.0"
 enum_primitive = "0.1.1"
 rsolace-sys = { version = "0.2.1", path = "../rsolace-sys" }
