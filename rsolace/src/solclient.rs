@@ -162,6 +162,25 @@ impl SolClient {
         self.inner.as_mut().get_mut()
     }
 
+    /// Cleanly disconnect and destroy the current session, if any.
+    /// After this call, `session_p` is null and safe to overwrite.
+    fn destroy_session(&mut self) {
+        unsafe {
+            if !self.inner().session_p.is_null() {
+                rsolace_sys::solClient_session_disconnect(self.inner().session_p);
+                let mut session_p = self.inner().session_p;
+                rsolace_sys::solClient_session_destroy(&mut session_p);
+                self.inner_mut().session_p = std::ptr::null_mut();
+                self.inner_mut().session_func_info = None;
+            }
+        }
+        // Clear pending request/reply maps to unblock any waiting callers
+        #[cfg(feature = "channel")]
+        self.inner().request_reply_map.clear();
+        #[cfg(all(feature = "channel", feature = "tokio"))]
+        self.inner().async_request_reply_map.clear();
+    }
+
     pub fn new(log_level: SolClientLogLevel) -> Result<SolClient, SolClientError> {
         let mut context_p: rsolace_sys::solClient_opaqueContext_pt = null_mut();
         let session_p: rsolace_sys::solClient_opaqueSession_pt = null_mut();
@@ -247,6 +266,11 @@ impl SolClient {
     }
 
     pub fn connect(&mut self, props: SessionProps) -> bool {
+        // Clean up any existing session before creating a new one.
+        // This prevents the old session's background cleanup from
+        // interfering with the new session's channels. (Issue #6)
+        self.destroy_session();
+
         let mut session_props = props.to_c();
         let session_props_ptr: rsolace_sys::solClient_propertyArray_pt = session_props.as_mut_ptr();
 
@@ -834,25 +858,12 @@ impl SolClient {
 
 impl Drop for SolClient {
     fn drop(&mut self) {
-        // First destroy session if it wasn't already destroyed
-        // if self.inner().session_p != 0 {
-        if !self.inner().session_p.is_null() {
-            unsafe {
-                rsolace_sys::solClient_session_disconnect(self.inner().session_p);
-                let mut session_p = self.inner().session_p;
-                rsolace_sys::solClient_session_destroy(&mut session_p);
-            }
-        }
+        self.destroy_session();
 
-        // let context_p = self.inner().context_p as rsolace_sys::solClient_opaqueContext_pt;
         let mut context_p = self.inner().context_p;
-        // tracing::debug!("solace client context_p {}", self.inner().context_p);
-        // tracing::debug!("solace client context_p {:?}", context_p);
         unsafe {
             rsolace_sys::solClient_context_destroy(&mut context_p);
             rsolace_sys::solClient_cleanup();
-            // tracing::debug!("solace client context_p {:?}", context_p);
-            // tracing::debug!("solace client context_p {}", self.inner().context_p);
         }
         tracing::debug!("solace client dropped");
     }
@@ -875,3 +886,113 @@ impl Drop for SolClient {
 // ```
 unsafe impl Send for SolClient {}
 unsafe impl Sync for SolClient {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_destroy_session_on_null_session() {
+        let mut client = SolClient::new(SolClientLogLevel::Notice).unwrap();
+        // session_p starts null — destroy_session should be a no-op
+        client.destroy_session();
+    }
+
+    #[test]
+    fn test_destroy_session_idempotent() {
+        let mut client = SolClient::new(SolClientLogLevel::Notice).unwrap();
+        client.destroy_session();
+        client.destroy_session();
+        // No panic or double-free
+    }
+
+    #[test]
+    fn test_double_disconnect() {
+        let client = SolClient::new(SolClientLogLevel::Notice).unwrap();
+        client.disconnect();
+        client.disconnect();
+        // No panic — disconnect on null session is safe
+    }
+
+    #[cfg(feature = "channel")]
+    #[test]
+    fn test_channels_persist_after_destroy() {
+        let mut client = SolClient::new(SolClientLogLevel::Notice).unwrap();
+
+        let msg_recv = client.get_msg_receiver();
+        let event_recv = client.get_event_receiver();
+        let p2p_recv = client.get_p2p_receiver();
+        let request_recv = client.get_request_receiver();
+
+        client.destroy_session();
+
+        // Senders should still be open — channels are created in new(), not connect()
+        let msg = SolMsg::new().unwrap();
+        assert!(client.inner().msg_sender.send(msg).is_ok());
+
+        let event = SolEvent::new(
+            crate::types::SolClientSessionEvent::UpNotice,
+            0,
+            "test",
+        );
+        assert!(client.inner().event_sender.send(event).is_ok());
+
+        // Receivers should get the messages we just sent
+        assert!(msg_recv.try_recv().is_ok());
+        assert!(event_recv.try_recv().is_ok());
+
+        // All receivers are still valid (not closed)
+        drop(p2p_recv);
+        drop(request_recv);
+    }
+
+    #[test]
+    fn test_drop_after_disconnect() {
+        let client = SolClient::new(SolClientLogLevel::Notice).unwrap();
+        client.disconnect();
+        drop(client);
+        // No double-free or panic
+    }
+
+    #[test]
+    fn test_connect_twice_without_disconnect() {
+        let mut client = SolClient::new(SolClientLogLevel::Notice).unwrap();
+        // First connect with unreachable host — session is created but connect fails
+        let props1 = SessionProps::default()
+            .host("tcp://127.0.0.1:1")
+            .vpn("default")
+            .username("test")
+            .password("test")
+            .connect_timeout_ms(100)
+            .connect_retries(0);
+        let _ = client.connect(props1);
+        // Second connect — destroy_session() at start should clean up the first
+        let props2 = SessionProps::default()
+            .host("tcp://127.0.0.1:1")
+            .vpn("default")
+            .username("test")
+            .password("test")
+            .connect_timeout_ms(100)
+            .connect_retries(0);
+        let _ = client.connect(props2);
+        // No panic, no leak, no double-free
+    }
+
+    #[cfg(feature = "channel")]
+    #[test]
+    fn test_request_reply_map_cleared_on_destroy() {
+        let mut client = SolClient::new(SolClientLogLevel::Notice).unwrap();
+
+        // Insert a dummy entry into request_reply_map
+        let (s, _r) = kanal::bounded(1);
+        client
+            .inner()
+            .request_reply_map
+            .insert("test-corr-id".to_string(), s);
+        assert!(!client.inner().request_reply_map.is_empty());
+
+        client.destroy_session();
+
+        assert!(client.inner().request_reply_map.is_empty());
+    }
+}
