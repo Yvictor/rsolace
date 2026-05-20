@@ -8,7 +8,15 @@ pub struct SolEvent {
     pub session_event: SolClientSessionEvent,
     pub response_code: u32,
     pub info: String,
-    // correlation: String,
+    /// Application-supplied correlation tag passed back by the C API in
+    /// asynchronous Session-event confirmations (e.g.
+    /// `SOLCLIENT_SESSION_EVENT_MODIFYPROP_OK` /
+    /// `SOLCLIENT_SESSION_EVENT_MODIFYPROP_FAIL`). Stored as a `usize`
+    /// because the underlying C field is `void *` and rsolace uses the
+    /// pointer as an opaque numeric handle into an internal waiter map.
+    /// `None` when the C API did not provide a correlation pointer for
+    /// this event.
+    pub correlation_tag: Option<usize>,
 }
 
 #[derive(Debug, Snafu)]
@@ -27,6 +35,7 @@ impl SolEvent {
             session_event,
             response_code,
             info: info.to_string(),
+            correlation_tag: None,
         }
     }
 
@@ -44,10 +53,21 @@ impl SolEvent {
             .context(InfoUtf8Snafu)?
             .to_owned();
 
+        // The C API forwards back the `void *correlation_p` we passed into
+        // the originating non-blocking call (e.g. modifyClientInfo). rsolace
+        // uses the pointer as an opaque numeric tag, so reinterpret it as
+        // a `usize`. A null pointer means "no correlation supplied".
+        let correlation_tag = if event.correlation_p.is_null() {
+            None
+        } else {
+            Some(event.correlation_p as usize)
+        };
+
         Ok(SolEvent {
             session_event: event.sessionEvent.into(),
             response_code: event.responseCode,
             info,
+            correlation_tag,
         })
     }
 

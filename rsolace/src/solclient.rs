@@ -5,7 +5,7 @@ use super::solmsg::{SolMsg, SolMsgError};
 pub use super::solprops::SessionProps;
 use super::types::{
     ErrorInfo, SolClientCacheRequestFlags, SolClientLogLevel, SolClientReturnCode,
-    SolClientSubscribeFlags,
+    SolClientSessionEvent, SolClientSubscribeFlags,
 };
 use super::utils::ConvertToCString;
 use dashmap::DashMap;
@@ -18,13 +18,22 @@ use std::option::Option;
 use std::os::raw::c_char;
 use std::pin::Pin;
 use std::ptr::{null, null_mut};
+use std::time::Duration;
 // TODO fn pointer to struct
 #[cfg(feature = "channel")]
 use kanal::{bounded, unbounded, Receiver, Sender};
 // Async kanal imports for future async support
 #[cfg(all(feature = "channel", feature = "tokio"))]
 use kanal::{bounded_async, AsyncReceiver, AsyncSender};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+
+/// Maximum time `modify_client_info` will wait for the asynchronous
+/// `SOLCLIENT_SESSION_EVENT_MODIFYPROP_OK` / `_FAIL` confirmation.
+///
+/// Matches Solace's documented default of
+/// `SOLCLIENT_SESSION_PROP_DEFAULT_MODIFYPROP_TIMEOUT_MS = 10000`.
+const MODIFY_CLIENT_INFO_TIMEOUT_MS: u64 = 10_000;
 // #[cfg_attr(feature = "tokio", derive(Debug, Clone))]
 
 #[derive(Debug, Snafu, PartialEq)]
@@ -140,6 +149,17 @@ struct SolClientInner {
     #[cfg(all(feature = "channel", feature = "tokio"))]
     // async_request_reply_map: Arc<DashMap<String, AsyncSender<SolMsg>>>,
     async_request_reply_map: DashMap<String, AsyncSender<SolMsg>>,
+    /// Monotonic counter used to generate unique correlation tags for
+    /// non-blocking session-modify operations. Starts at 1 so a `null`
+    /// correlation pointer is always distinguishable from a valid tag.
+    #[cfg(feature = "channel")]
+    next_modify_prop_tag: AtomicUsize,
+    /// One-shot waiters keyed by correlation tag for in-flight
+    /// `solClient_session_modifyClientInfo` calls. The event callback
+    /// resolves the matching waiter with the `ModifyPropOk` /
+    /// `ModifyPropFail` outcome reported by the C API.
+    #[cfg(feature = "channel")]
+    modify_prop_waiters: DashMap<usize, Sender<SolClientSessionEvent>>,
 }
 
 pub struct SolClient {
@@ -179,6 +199,11 @@ impl SolClient {
         self.inner().request_reply_map.clear();
         #[cfg(all(feature = "channel", feature = "tokio"))]
         self.inner().async_request_reply_map.clear();
+        // Drop any pending modify_client_info waiters. Dropping the senders
+        // closes the channels so `recv_timeout` returns immediately instead
+        // of blocking the full 10s when the session is torn down.
+        #[cfg(feature = "channel")]
+        self.inner().modify_prop_waiters.clear();
     }
 
     pub fn new(log_level: SolClientLogLevel) -> Result<SolClient, SolClientError> {
@@ -257,6 +282,12 @@ impl SolClient {
                 #[cfg(all(feature = "channel", feature = "tokio"))]
                 // async_request_reply_map: Arc::new(DashMap::new()),
                 async_request_reply_map: DashMap::new(),
+                #[cfg(feature = "channel")]
+                // Start at 1: 0 would round-trip to a null pointer and be
+                // indistinguishable from "no correlation supplied".
+                next_modify_prop_tag: AtomicUsize::new(1),
+                #[cfg(feature = "channel")]
+                modify_prop_waiters: DashMap::new(),
             };
 
             Ok(SolClient {
@@ -370,7 +401,7 @@ impl SolClient {
                     #[cfg(feature = "raw")]
                     {
                         if let Some(cb) = self_ref.rx_event_callback {
-                            cb(self_ref, event)
+                            cb(self_ref, event.clone())
                         } else {
                             tracing::info!(
                                 "event: {}, response code: {}, info: {}",
@@ -382,6 +413,33 @@ impl SolClient {
                     }
                     #[cfg(feature = "channel")]
                     {
+                        // Dispatch ModifyPropOk / ModifyPropFail to any
+                        // in-flight modify_client_info waiter keyed by the
+                        // correlation tag we supplied. Always still forward
+                        // the event downstream so observers on the public
+                        // event channel can see modify-prop outcomes too.
+                        if matches!(
+                            event.session_event,
+                            SolClientSessionEvent::ModifyPropOk
+                                | SolClientSessionEvent::ModifyPropFail
+                        ) {
+                            if let Some(tag) = event.correlation_tag {
+                                if let Some((_tag, sender)) =
+                                    self_ref.modify_prop_waiters.remove(&tag)
+                                {
+                                    // bounded(1): try_send avoids any
+                                    // possibility of blocking the C API
+                                    // context thread if the waiter has gone
+                                    // away.
+                                    if let Err(e) = sender.try_send(event.session_event) {
+                                        tracing::error!(
+                                            "modify_client_info waiter try_send error: {:?}",
+                                            e
+                                        );
+                                    }
+                                }
+                            }
+                        }
                         if let Err(e) = self_ref.event_sender.send(event) {
                             tracing::error!("send event to channel error: {}", e);
                         }
@@ -796,15 +854,50 @@ impl SolClient {
         SolClientReturnCode::from_i32(rt_code).unwrap()
     }
 
+    /// Modify the `APPLICATION_DESCRIPTION` and/or `CLIENT_NAME` of the
+    /// current Session and synchronously wait for the broker confirmation.
+    ///
+    /// Internally this issues the modify in the C API's non-blocking
+    /// mode (no `SOLCLIENT_MODIFYPROP_FLAGS_WAITFORCONFIRM`) with a
+    /// per-call correlation tag, then awaits the matching
+    /// `SOLCLIENT_SESSION_EVENT_MODIFYPROP_OK` /
+    /// `SOLCLIENT_SESSION_EVENT_MODIFYPROP_FAIL` event before returning.
+    ///
+    /// The previous implementation used `WAITFORCONFIRM`, which the C API
+    /// would consume internally: the public event callback never saw the
+    /// MODIFYPROP_OK event, and the call returned as soon as the broker
+    /// acknowledged receipt of the modify request, not when the in-API
+    /// P2P-subscription migration had finished. That left a race window
+    /// (~0-3 s) where the next `send_request` could time out because the
+    /// new client name's reply-to subscription wasn't yet active.
+    /// See <https://github.com/Yvictor/rsolace/issues/8>.
+    ///
+    /// Returns `SolClientReturnCode::Ok` on `ModifyPropOk`,
+    /// `SolClientReturnCode::Fail` on `ModifyPropFail` or on internal
+    /// timeout, and the C API's return code on any synchronous failure
+    /// (e.g. the call was rejected before being dispatched).
+    ///
+    /// # Threading
+    ///
+    /// This call MUST NOT be invoked from within the Solace API context
+    /// thread itself (e.g. from inside a message or event callback);
+    /// doing so would deadlock because the event callback delivering the
+    /// confirmation runs on that same context thread. rsolace's normal
+    /// calling pattern (application thread / tokio runtime) is fine.
     pub fn modify_client_info(
         &mut self,
         app_description: Option<&str>,
         client_name: Option<&str>,
     ) -> SolClientReturnCode {
+        // Keep the CStrings alive for the duration of the C call: the
+        // raw pointers we hand to the C API are only valid while these
+        // owners are in scope.
+        let app_desc_c = app_description.map(|s| CString::new(s).unwrap());
+        let client_name_c = client_name.map(|s| CString::new(s).unwrap());
+
         let mut client_info_props = Vec::<*const c_char>::new();
 
-        if let Some(app_desc) = app_description {
-            let app_desc = CString::new(app_desc).unwrap();
+        if let Some(ref app_desc) = app_desc_c {
             client_info_props.push(
                 rsolace_sys::SOLCLIENT_SESSION_PROP_APPLICATION_DESCRIPTION.as_ptr()
                     as *const c_char,
@@ -812,26 +905,108 @@ impl SolClient {
             client_info_props.push(app_desc.as_ptr());
         }
 
-        if let Some(name) = client_name {
-            let name_ptr = CString::new(name).unwrap();
+        if let Some(ref name) = client_name_c {
             client_info_props
                 .push(rsolace_sys::SOLCLIENT_SESSION_PROP_CLIENT_NAME.as_ptr() as *const c_char);
-            client_info_props.push(name_ptr.as_ptr());
+            client_info_props.push(name.as_ptr());
         }
         if client_info_props.is_empty() {
             return SolClientReturnCode::NotFound;
         }
-        client_info_props.push(std::ptr::null_mut());
+        client_info_props.push(std::ptr::null());
 
-        let rt_code = unsafe {
-            rsolace_sys::solClient_session_modifyClientInfo(
-                self.inner().session_p,
-                client_info_props.as_mut_ptr(),
-                rsolace_sys::SOLCLIENT_MODIFYPROP_FLAGS_WAITFORCONFIRM,
-                std::ptr::null_mut(),
-            )
-        };
-        SolClientReturnCode::from_i32(rt_code).unwrap()
+        // Without the `channel` feature there is no waiter-map mechanism;
+        // fall back to the previous blocking behaviour. Consumers without
+        // the channel feature don't get the race fix, but they also
+        // don't have the infrastructure for the async path.
+        #[cfg(not(feature = "channel"))]
+        {
+            let rt_code = unsafe {
+                rsolace_sys::solClient_session_modifyClientInfo(
+                    self.inner().session_p,
+                    client_info_props.as_mut_ptr(),
+                    rsolace_sys::SOLCLIENT_MODIFYPROP_FLAGS_WAITFORCONFIRM,
+                    std::ptr::null_mut(),
+                )
+            };
+            return SolClientReturnCode::from_i32(rt_code).unwrap();
+        }
+
+        #[cfg(feature = "channel")]
+        {
+            // Allocate a unique correlation tag and register a one-shot
+            // waiter BEFORE issuing the C call, so we never race the
+            // event callback that may fire as soon as the call returns.
+            let tag = self
+                .inner()
+                .next_modify_prop_tag
+                .fetch_add(1, Ordering::Relaxed);
+            let (sender, receiver) = bounded::<SolClientSessionEvent>(1);
+            self.inner().modify_prop_waiters.insert(tag, sender);
+
+            let rt_code = unsafe {
+                rsolace_sys::solClient_session_modifyClientInfo(
+                    self.inner().session_p,
+                    client_info_props.as_mut_ptr(),
+                    // Non-blocking mode: the C API will deliver the
+                    // outcome via SOLCLIENT_SESSION_EVENT_MODIFYPROP_OK /
+                    // MODIFYPROP_FAIL with our `correlation_p` returned
+                    // verbatim. With WAITFORCONFIRM set, the C API would
+                    // consume the confirmation internally and our event
+                    // callback would never see it.
+                    0,
+                    tag as *mut c_void,
+                )
+            };
+            let rt_code = SolClientReturnCode::from_i32(rt_code).unwrap();
+
+            // The C API may return either OK or IN_PROGRESS to indicate
+            // "request was queued, async confirmation will follow".
+            // Anything else is a synchronous failure (e.g. NOT_READY,
+            // WOULD_BLOCK, FAIL), so no event will arrive and we do not wait.
+            if rt_code != SolClientReturnCode::Ok && rt_code != SolClientReturnCode::InProgress {
+                self.inner().modify_prop_waiters.remove(&tag);
+                return rt_code;
+            }
+
+            // Block until the matching MODIFYPROP_OK / _FAIL event fires
+            // on the context thread, or we hit the documented Solace
+            // default modify-prop timeout.
+            let result =
+                receiver.recv_timeout(Duration::from_millis(MODIFY_CLIENT_INFO_TIMEOUT_MS));
+            // Ensure the waiter entry is gone on every path (timeout,
+            // success, channel-closed). Drop is normally enough, but
+            // belt-and-braces against the channel being resolved twice.
+            self.inner().modify_prop_waiters.remove(&tag);
+
+            match result {
+                Ok(SolClientSessionEvent::ModifyPropOk) => SolClientReturnCode::Ok,
+                Ok(SolClientSessionEvent::ModifyPropFail) => {
+                    tracing::warn!(
+                        "modify_client_info: broker returned MODIFYPROP_FAIL (tag={})",
+                        tag
+                    );
+                    SolClientReturnCode::Fail
+                }
+                Ok(other) => {
+                    // Should never happen: only OK/FAIL are dispatched.
+                    tracing::error!(
+                        "modify_client_info: unexpected event variant {:?} (tag={})",
+                        other,
+                        tag
+                    );
+                    SolClientReturnCode::Fail
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "modify_client_info: timed out or channel closed waiting for MODIFYPROP confirmation (tag={}, err={:?})",
+                        tag,
+                        e
+                    );
+                    SolClientReturnCode::Fail
+                }
+            }
+        }
     }
 
     pub fn get_ptr(&self) -> *const c_void {

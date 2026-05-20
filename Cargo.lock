@@ -593,8 +593,8 @@ dependencies = [
 
 [[package]]
 name = "kanal"
-version = "0.1.1"
-source = "git+https://github.com/fereidani/kanal?rev=dc47624#dc47624cc892d280873703b3333698587bd8edc3"
+version = "0.1.2"
+source = "git+https://github.com/Yvictor/kanal?tag=v0.1.2#41abc4f3ab6bf099e3521330360deceb7d6f20b2"
 dependencies = [
  "cacheguard",
  "futures-core",
@@ -891,7 +891,7 @@ dependencies = [
 
 [[package]]
 name = "pyrsolace"
-version = "0.3.10"
+version = "0.3.13"
 dependencies = [
  "chrono",
  "crossbeam",
@@ -1001,7 +1001,7 @@ dependencies = [
 
 [[package]]
 name = "rsolace"
-version = "0.3.10"
+version = "0.3.13"
 dependencies = [
  "chrono",
  "dashmap",
