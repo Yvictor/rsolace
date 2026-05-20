@@ -802,21 +802,22 @@ impl SolClient {
         client_name: Option<&str>,
     ) -> SolClientReturnCode {
         let mut client_info_props = Vec::<*const c_char>::new();
+        let mut prop_values = Vec::<CString>::new();
 
         if let Some(app_desc) = app_description {
-            let app_desc = CString::new(app_desc).unwrap();
+            prop_values.push(CString::new(app_desc).unwrap());
             client_info_props.push(
                 rsolace_sys::SOLCLIENT_SESSION_PROP_APPLICATION_DESCRIPTION.as_ptr()
                     as *const c_char,
             );
-            client_info_props.push(app_desc.as_ptr());
+            client_info_props.push(prop_values.last().unwrap().as_ptr());
         }
 
         if let Some(name) = client_name {
-            let name_ptr = CString::new(name).unwrap();
+            prop_values.push(CString::new(name).unwrap());
             client_info_props
                 .push(rsolace_sys::SOLCLIENT_SESSION_PROP_CLIENT_NAME.as_ptr() as *const c_char);
-            client_info_props.push(name_ptr.as_ptr());
+            client_info_props.push(prop_values.last().unwrap().as_ptr());
         }
         if client_info_props.is_empty() {
             return SolClientReturnCode::NotFound;
