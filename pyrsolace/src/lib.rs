@@ -1765,6 +1765,18 @@ impl Client {
         )
     }
 
+    fn unsubscribe_on_behalf_of_client(
+        &mut self,
+        client_name: &str,
+        topic: &str,
+        flag: SubscribeFlag,
+    ) -> ReturnCode {
+        ReturnCode(
+            self.solclient
+                .unsubscribe_on_behalf_of_client(client_name, topic, flag.0),
+        )
+    }
+
     fn send_msg(&mut self, msg: &Msg) -> ReturnCode {
         ReturnCode(self.solclient.send_msg(&msg.0))
     }
