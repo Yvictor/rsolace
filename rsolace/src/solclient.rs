@@ -616,6 +616,41 @@ impl SolClient {
         }
     }
 
+    /// Add a Topic subscription on behalf of another client by client name.
+    ///
+    /// This wraps `solClient_session_endpointTopicSubscribe()` with
+    /// `SOLCLIENT_ENDPOINT_PROP_CLIENT_NAME`. The connected Session must have
+    /// subscription-manager permission on the broker. Subscriptions added this
+    /// way are owned by the target client Session and are not reapplied from
+    /// this Session's subscription cache after reconnect.
+    pub fn subscribe_on_behalf_of_client(
+        &self,
+        client_name: &str,
+        topic: &str,
+        flag: SolClientSubscribeFlags,
+    ) -> SolClientReturnCode {
+        let client_name = CString::new(client_name).unwrap();
+        let topic = CString::new(topic).unwrap();
+        let mut endpoint_props: [*const c_char; 5] = [
+            rsolace_sys::SOLCLIENT_ENDPOINT_PROP_ID.as_ptr() as *const c_char,
+            rsolace_sys::SOLCLIENT_ENDPOINT_PROP_CLIENT_NAME.as_ptr() as *const c_char,
+            rsolace_sys::SOLCLIENT_ENDPOINT_PROP_NAME.as_ptr() as *const c_char,
+            client_name.as_ptr(),
+            null(),
+        ];
+
+        unsafe {
+            let rt_code = rsolace_sys::solClient_session_endpointTopicSubscribe(
+                endpoint_props.as_mut_ptr(),
+                self.inner().session_p,
+                flag as rsolace_sys::solClient_subscribeFlags_t,
+                topic.as_ptr(),
+                null_mut(),
+            );
+            SolClientReturnCode::from_i32(rt_code).unwrap()
+        }
+    }
+
     pub fn send_msg(&self, msg: &SolMsg) -> SolClientReturnCode {
         let rt_code = unsafe {
             rsolace_sys::solClient_session_sendMsg(self.inner().session_p, msg.get_ptr())
