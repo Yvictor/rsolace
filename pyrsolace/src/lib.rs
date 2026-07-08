@@ -1753,27 +1753,31 @@ impl Client {
         ReturnCode(self.solclient.unsubscribe_ext(topic, flag.0))
     }
 
+    #[pyo3(signature = (client_name, topic, flag, correlation_tag=None))]
     fn subscribe_on_behalf_of_client(
         &mut self,
         client_name: &str,
         topic: &str,
         flag: SubscribeFlag,
+        correlation_tag: Option<usize>,
     ) -> ReturnCode {
         ReturnCode(
             self.solclient
-                .subscribe_on_behalf_of_client(client_name, topic, flag.0),
+                .subscribe_on_behalf_of_client(client_name, topic, flag.0, correlation_tag),
         )
     }
 
+    #[pyo3(signature = (client_name, topic, flag, correlation_tag=None))]
     fn unsubscribe_on_behalf_of_client(
         &mut self,
         client_name: &str,
         topic: &str,
         flag: SubscribeFlag,
+        correlation_tag: Option<usize>,
     ) -> ReturnCode {
         ReturnCode(
             self.solclient
-                .unsubscribe_on_behalf_of_client(client_name, topic, flag.0),
+                .unsubscribe_on_behalf_of_client(client_name, topic, flag.0, correlation_tag),
         )
     }
 

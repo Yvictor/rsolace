@@ -194,10 +194,18 @@ class Client:
     def subscribe_ext(self, topic: str, flag: SubscribeFlag) -> ReturnCode: ...
     def unsubscribe_ext(self, topic: str, flag: SubscribeFlag) -> ReturnCode: ...
     def subscribe_on_behalf_of_client(
-        self, client_name: str, topic: str, flag: SubscribeFlag
+        self,
+        client_name: str,
+        topic: str,
+        flag: SubscribeFlag,
+        correlation_tag: Optional[int] = None,
     ) -> ReturnCode: ...
     def unsubscribe_on_behalf_of_client(
-        self, client_name: str, topic: str, flag: SubscribeFlag
+        self,
+        client_name: str,
+        topic: str,
+        flag: SubscribeFlag,
+        correlation_tag: Optional[int] = None,
     ) -> ReturnCode: ...
     def send_msg(self, msg: Msg) -> ReturnCode: ...
     def send_multiple_msg(self, msgs: List[Msg]) -> ReturnCode: ...
