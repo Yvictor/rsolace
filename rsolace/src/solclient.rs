@@ -5,7 +5,7 @@ use super::solmsg::{SolMsg, SolMsgError};
 pub use super::solprops::SessionProps;
 use super::types::{
     ErrorInfo, SolClientCacheRequestFlags, SolClientLogLevel, SolClientReturnCode,
-    SolClientSessionEvent, SolClientSubscribeFlags,
+    SolClientSessionCapability, SolClientSessionEvent, SolClientSubscribeFlags,
 };
 use super::utils::ConvertToCString;
 use dashmap::DashMap;
@@ -616,23 +616,18 @@ impl SolClient {
         }
     }
 
-    pub fn is_capable(&self, capability_name: &str) -> bool {
-        let capability_name = match CString::new(capability_name) {
-            Ok(capability_name) => capability_name,
-            Err(_) => return false,
-        };
-
+    pub fn is_capable(&self, capability: SolClientSessionCapability) -> bool {
         unsafe {
             !self.inner().session_p.is_null()
                 && rsolace_sys::solClient_session_isCapable(
                     self.inner().session_p,
-                    capability_name.as_ptr(),
+                    capability.as_ptr(),
                 ) != 0
         }
     }
 
     pub fn has_subscription_manager_capability(&self) -> bool {
-        self.is_capable("SESSION_CAPABILITY_SUBSCRIPTION_MANAGER")
+        self.is_capable(SolClientSessionCapability::SubscriptionManager)
     }
 
     fn validate_on_behalf_subscribe_flag(flag: SolClientSubscribeFlags) -> bool {

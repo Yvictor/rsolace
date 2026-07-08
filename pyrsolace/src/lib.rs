@@ -19,7 +19,7 @@ use rsolace::solevent::SolEvent;
 use rsolace::solmsg::{Destination, SolMsg};
 use rsolace::solcache::CacheSessionProps;
 use rsolace::solcontainer::{SolContainer, ContainerType, ContainerFieldType};
-use rsolace::types::{SolClientDeliveryMode, SolClientCacheRequestFlags, SolClientDestType, SolClientReturnCode, SolClientSessionEvent, SolClientSubscribeFlags, SolClientCacheStatus};
+use rsolace::types::{SolClientDeliveryMode, SolClientCacheRequestFlags, SolClientDestType, SolClientReturnCode, SolClientSessionCapability, SolClientSessionEvent, SolClientSubscribeFlags, SolClientCacheStatus};
 
 use crossbeam::atomic::AtomicCell;
 use kanal::{Receiver, ReceiveError, AsyncReceiver};
@@ -790,6 +790,147 @@ impl SessionEvent {
         }
     }
 
+}
+
+#[pyclass]
+#[derive(Debug, Clone, Copy)]
+struct SessionCapability(SolClientSessionCapability);
+
+#[pymethods]
+impl SessionCapability {
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn PubGuaranteed() -> Self { SessionCapability(SolClientSessionCapability::PubGuaranteed) }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn SubFlowGuaranteed() -> Self { SessionCapability(SolClientSessionCapability::SubFlowGuaranteed) }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn Browser() -> Self { SessionCapability(SolClientSessionCapability::Browser) }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn TempEndpoint() -> Self { SessionCapability(SolClientSessionCapability::TempEndpoint) }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn Jndi() -> Self { SessionCapability(SolClientSessionCapability::Jndi) }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn Compression() -> Self { SessionCapability(SolClientSessionCapability::Compression) }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn Selector() -> Self { SessionCapability(SolClientSessionCapability::Selector) }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn EndpointManagement() -> Self { SessionCapability(SolClientSessionCapability::EndpointManagement) }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn MaxGuaranteedMsgSize() -> Self { SessionCapability(SolClientSessionCapability::MaxGuaranteedMsgSize) }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn MaxDirectMsgSize() -> Self { SessionCapability(SolClientSessionCapability::MaxDirectMsgSize) }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn EndpointMessageTtl() -> Self { SessionCapability(SolClientSessionCapability::EndpointMessageTtl) }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn QueueSubscriptions() -> Self { SessionCapability(SolClientSessionCapability::QueueSubscriptions) }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn SubscriptionManager() -> Self { SessionCapability(SolClientSessionCapability::SubscriptionManager) }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn MessageEliding() -> Self { SessionCapability(SolClientSessionCapability::MessageEliding) }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn NoLocal() -> Self { SessionCapability(SolClientSessionCapability::NoLocal) }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn PerTopicSequenceNumbering() -> Self { SessionCapability(SolClientSessionCapability::PerTopicSequenceNumbering) }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn EndpointDiscardBehavior() -> Self { SessionCapability(SolClientSessionCapability::EndpointDiscardBehavior) }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn ActiveFlowIndication() -> Self { SessionCapability(SolClientSessionCapability::ActiveFlowIndication) }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn TransactedSession() -> Self { SessionCapability(SolClientSessionCapability::TransactedSession) }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn OpenMama() -> Self { SessionCapability(SolClientSessionCapability::OpenMama) }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn MessageReplay() -> Self { SessionCapability(SolClientSessionCapability::MessageReplay) }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn CompressedSsl() -> Self { SessionCapability(SolClientSessionCapability::CompressedSsl) }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn LongSelectors() -> Self { SessionCapability(SolClientSessionCapability::LongSelectors) }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn SharedSubscriptions() -> Self { SessionCapability(SolClientSessionCapability::SharedSubscriptions) }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn BrReplayErrorId() -> Self { SessionCapability(SolClientSessionCapability::BrReplayErrorId) }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn AdCtrlVersionMin() -> Self { SessionCapability(SolClientSessionCapability::AdCtrlVersionMin) }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn AdCtrlVersionMax() -> Self { SessionCapability(SolClientSessionCapability::AdCtrlVersionMax) }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn SupportsXpeSubscriptions() -> Self { SessionCapability(SolClientSessionCapability::SupportsXpeSubscriptions) }
+
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn CutThrough() -> Self { SessionCapability(SolClientSessionCapability::CutThrough) }
+
+    #[getter]
+    fn value(&self) -> String { format!("{:?}", self.0) }
+
+    fn __str__(&self) -> String { format!("{:?}", self.0) }
+
+    fn __repr__(&self) -> String { format!("SessionCapability.{:?}", self.0) }
+
+    #[getter]
+    fn name(&self) -> String { self.__str__() }
+
+    fn __richcmp__(&self, other: &Self, op: CompareOp) -> bool {
+        match op {
+            CompareOp::Eq => self.0 == other.0,
+            CompareOp::Ne => self.0 != other.0,
+            _ => false,
+        }
+    }
 }
 
 #[pyclass]
@@ -1753,8 +1894,8 @@ impl Client {
         ReturnCode(self.solclient.unsubscribe_ext(topic, flag.0))
     }
 
-    fn is_capable(&self, capability_name: &str) -> bool {
-        self.solclient.is_capable(capability_name)
+    fn is_capable(&self, capability: SessionCapability) -> bool {
+        self.solclient.is_capable(capability.0)
     }
 
     fn has_subscription_manager_capability(&self) -> bool {
@@ -1909,6 +2050,7 @@ fn pyrsolace(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<LogLevel>()?;
     m.add_class::<ReturnCode>()?;
     m.add_class::<SubscribeFlag>()?;
+    m.add_class::<SessionCapability>()?;
     m.add_class::<CacheStatus>()?;
     m.add_class::<CacheRequestFlag>()?;
     m.add_function(wrap_pyfunction!(init_tracing_logger, m)?)?;
