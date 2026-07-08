@@ -1753,6 +1753,14 @@ impl Client {
         ReturnCode(self.solclient.unsubscribe_ext(topic, flag.0))
     }
 
+    fn is_capable(&self, capability_name: &str) -> bool {
+        self.solclient.is_capable(capability_name)
+    }
+
+    fn has_subscription_manager_capability(&self) -> bool {
+        self.solclient.has_subscription_manager_capability()
+    }
+
     #[pyo3(signature = (client_name, topic, flag, correlation_tag=None))]
     fn subscribe_on_behalf_of_client(
         &mut self,

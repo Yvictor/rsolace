@@ -616,15 +616,23 @@ impl SolClient {
         }
     }
 
-    fn can_manage_client_subscriptions(&self) -> bool {
+    pub fn is_capable(&self, capability_name: &str) -> bool {
+        let capability_name = match CString::new(capability_name) {
+            Ok(capability_name) => capability_name,
+            Err(_) => return false,
+        };
+
         unsafe {
             !self.inner().session_p.is_null()
                 && rsolace_sys::solClient_session_isCapable(
                     self.inner().session_p,
-                    rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_SUBSCRIPTION_MANAGER.as_ptr()
-                        as *const c_char,
+                    capability_name.as_ptr(),
                 ) != 0
         }
+    }
+
+    pub fn has_subscription_manager_capability(&self) -> bool {
+        self.is_capable("SESSION_CAPABILITY_SUBSCRIPTION_MANAGER")
     }
 
     fn validate_on_behalf_subscribe_flag(flag: SolClientSubscribeFlags) -> bool {
@@ -637,12 +645,13 @@ impl SolClient {
     /// Add a Topic subscription on behalf of another client by client name.
     ///
     /// This wraps `solClient_session_endpointTopicSubscribe()` with
-    /// `SOLCLIENT_ENDPOINT_PROP_CLIENT_NAME`. The connected Session must have
-    /// subscription-manager permission on the broker. Subscriptions added this
-    /// way are owned by the target client Session and are not reapplied from
-    /// this Session's subscription cache after reconnect. When using
+    /// `SOLCLIENT_ENDPOINT_PROP_CLIENT_NAME`. Subscriptions added this way are
+    /// owned by the target client Session and are not reapplied from this
+    /// Session's subscription cache after reconnect. When using
     /// `RequestConfirm`, pass a non-zero `correlation_tag` to identify the
-    /// asynchronous confirmation event.
+    /// asynchronous confirmation event. Call
+    /// `has_subscription_manager_capability()` first if the caller wants a
+    /// local capability check before issuing the request.
     pub fn subscribe_on_behalf_of_client(
         &self,
         client_name: &str,
@@ -650,9 +659,7 @@ impl SolClient {
         flag: SolClientSubscribeFlags,
         correlation_tag: Option<usize>,
     ) -> SolClientReturnCode {
-        if !Self::validate_on_behalf_subscribe_flag(flag)
-            || !self.can_manage_client_subscriptions()
-        {
+        if !Self::validate_on_behalf_subscribe_flag(flag) {
             return SolClientReturnCode::Fail;
         }
 
@@ -688,10 +695,10 @@ impl SolClient {
     /// Remove a Topic subscription previously added on behalf of another client.
     ///
     /// This wraps `solClient_session_endpointTopicUnsubscribe()` with
-    /// `SOLCLIENT_ENDPOINT_PROP_CLIENT_NAME`. The connected Session must have
-    /// subscription-manager permission on the broker. When using
-    /// `RequestConfirm`, pass a non-zero `correlation_tag` to identify the
-    /// asynchronous confirmation event.
+    /// `SOLCLIENT_ENDPOINT_PROP_CLIENT_NAME`. When using `RequestConfirm`,
+    /// pass a non-zero `correlation_tag` to identify the asynchronous
+    /// confirmation event. Call `has_subscription_manager_capability()` first
+    /// if the caller wants a local capability check before issuing the request.
     pub fn unsubscribe_on_behalf_of_client(
         &self,
         client_name: &str,
@@ -699,9 +706,7 @@ impl SolClient {
         flag: SolClientSubscribeFlags,
         correlation_tag: Option<usize>,
     ) -> SolClientReturnCode {
-        if !Self::validate_on_behalf_subscribe_flag(flag)
-            || !self.can_manage_client_subscriptions()
-        {
+        if !Self::validate_on_behalf_subscribe_flag(flag) {
             return SolClientReturnCode::Fail;
         }
 
