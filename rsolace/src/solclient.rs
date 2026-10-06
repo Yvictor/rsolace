@@ -5,7 +5,7 @@ use super::solmsg::{SolMsg, SolMsgError};
 pub use super::solprops::SessionProps;
 use super::types::{
     ErrorInfo, SolClientCacheRequestFlags, SolClientLogLevel, SolClientReturnCode,
-    SolClientSessionEvent, SolClientSubscribeFlags,
+    SolClientSessionCapability, SolClientSessionEvent, SolClientSubscribeFlags,
 };
 use super::utils::ConvertToCString;
 use dashmap::DashMap;
@@ -611,6 +611,124 @@ impl SolClient {
                 self.inner().session_p,
                 flag as rsolace_sys::solClient_subscribeFlags_t,
                 topic.as_ptr(),
+            );
+            SolClientReturnCode::from_i32(rt_code).unwrap()
+        }
+    }
+
+    pub fn is_capable(&self, capability: SolClientSessionCapability) -> bool {
+        unsafe {
+            !self.inner().session_p.is_null()
+                && rsolace_sys::solClient_session_isCapable(
+                    self.inner().session_p,
+                    capability.as_ptr(),
+                ) != 0
+        }
+    }
+
+    pub fn has_subscription_manager_capability(&self) -> bool {
+        self.is_capable(SolClientSessionCapability::SubscriptionManager)
+    }
+
+    fn validate_on_behalf_subscribe_flag(flag: SolClientSubscribeFlags) -> bool {
+        matches!(
+            flag,
+            SolClientSubscribeFlags::WaitForConfirm | SolClientSubscribeFlags::RequestConfirm
+        )
+    }
+
+    /// Add a Topic subscription on behalf of another client by client name.
+    ///
+    /// This wraps `solClient_session_endpointTopicSubscribe()` with
+    /// `SOLCLIENT_ENDPOINT_PROP_CLIENT_NAME`. Subscriptions added this way are
+    /// owned by the target client Session and are not reapplied from this
+    /// Session's subscription cache after reconnect. When using
+    /// `RequestConfirm`, pass a non-zero `correlation_tag` to identify the
+    /// asynchronous confirmation event. Call
+    /// `has_subscription_manager_capability()` first if the caller wants a
+    /// local capability check before issuing the request.
+    pub fn subscribe_on_behalf_of_client(
+        &self,
+        client_name: &str,
+        topic: &str,
+        flag: SolClientSubscribeFlags,
+        correlation_tag: Option<usize>,
+    ) -> SolClientReturnCode {
+        if !Self::validate_on_behalf_subscribe_flag(flag) {
+            return SolClientReturnCode::Fail;
+        }
+
+        let client_name = match CString::new(client_name) {
+            Ok(client_name) => client_name,
+            Err(_) => return SolClientReturnCode::Fail,
+        };
+        let topic = match CString::new(topic) {
+            Ok(topic) => topic,
+            Err(_) => return SolClientReturnCode::Fail,
+        };
+        let mut endpoint_props: [*const c_char; 5] = [
+            rsolace_sys::SOLCLIENT_ENDPOINT_PROP_ID.as_ptr() as *const c_char,
+            rsolace_sys::SOLCLIENT_ENDPOINT_PROP_CLIENT_NAME.as_ptr() as *const c_char,
+            rsolace_sys::SOLCLIENT_ENDPOINT_PROP_NAME.as_ptr() as *const c_char,
+            client_name.as_ptr(),
+            null(),
+        ];
+        let correlation_tag = correlation_tag.map_or(null_mut(), |tag| tag as *mut c_void);
+
+        unsafe {
+            let rt_code = rsolace_sys::solClient_session_endpointTopicSubscribe(
+                endpoint_props.as_mut_ptr(),
+                self.inner().session_p,
+                flag as rsolace_sys::solClient_subscribeFlags_t,
+                topic.as_ptr(),
+                correlation_tag,
+            );
+            SolClientReturnCode::from_i32(rt_code).unwrap()
+        }
+    }
+
+    /// Remove a Topic subscription previously added on behalf of another client.
+    ///
+    /// This wraps `solClient_session_endpointTopicUnsubscribe()` with
+    /// `SOLCLIENT_ENDPOINT_PROP_CLIENT_NAME`. When using `RequestConfirm`,
+    /// pass a non-zero `correlation_tag` to identify the asynchronous
+    /// confirmation event. Call `has_subscription_manager_capability()` first
+    /// if the caller wants a local capability check before issuing the request.
+    pub fn unsubscribe_on_behalf_of_client(
+        &self,
+        client_name: &str,
+        topic: &str,
+        flag: SolClientSubscribeFlags,
+        correlation_tag: Option<usize>,
+    ) -> SolClientReturnCode {
+        if !Self::validate_on_behalf_subscribe_flag(flag) {
+            return SolClientReturnCode::Fail;
+        }
+
+        let client_name = match CString::new(client_name) {
+            Ok(client_name) => client_name,
+            Err(_) => return SolClientReturnCode::Fail,
+        };
+        let topic = match CString::new(topic) {
+            Ok(topic) => topic,
+            Err(_) => return SolClientReturnCode::Fail,
+        };
+        let mut endpoint_props: [*const c_char; 5] = [
+            rsolace_sys::SOLCLIENT_ENDPOINT_PROP_ID.as_ptr() as *const c_char,
+            rsolace_sys::SOLCLIENT_ENDPOINT_PROP_CLIENT_NAME.as_ptr() as *const c_char,
+            rsolace_sys::SOLCLIENT_ENDPOINT_PROP_NAME.as_ptr() as *const c_char,
+            client_name.as_ptr(),
+            null(),
+        ];
+        let correlation_tag = correlation_tag.map_or(null_mut(), |tag| tag as *mut c_void);
+
+        unsafe {
+            let rt_code = rsolace_sys::solClient_session_endpointTopicUnsubscribe(
+                endpoint_props.as_mut_ptr(),
+                self.inner().session_p,
+                flag as rsolace_sys::solClient_subscribeFlags_t,
+                topic.as_ptr(),
+                correlation_tag,
             );
             SolClientReturnCode::from_i32(rt_code).unwrap()
         }
