@@ -34,6 +34,10 @@ use std::sync::Arc;
 /// Matches Solace's documented default of
 /// `SOLCLIENT_SESSION_PROP_DEFAULT_MODIFYPROP_TIMEOUT_MS = 10000`.
 const MODIFY_CLIENT_INFO_TIMEOUT_MS: u64 = 10_000;
+
+/// Most messages one [`SolClient::send_multiple_msg_written`] call accepts
+/// (`SOLCLIENT_SESSION_SEND_MULTIPLE_LIMIT`).
+pub const SEND_MULTIPLE_LIMIT: usize = rsolace_sys::SOLCLIENT_SESSION_SEND_MULTIPLE_LIMIT as usize;
 // #[cfg_attr(feature = "tokio", derive(Debug, Clone))]
 
 #[derive(Debug, Snafu, PartialEq)]
@@ -623,23 +627,53 @@ impl SolClient {
         SolClientReturnCode::from_i32(rt_code).unwrap()
     }
 
+    /// Sends the messages with one `solClient_session_sendMultipleMsg` call. Prefer
+    /// [`Self::send_multiple_msg_written`], which also reports how many were accepted.
+    ///
+    /// More than [`SEND_MULTIPLE_LIMIT`] messages are refused with `Fail` (nothing sent).
     pub fn send_multiple_msg(&self, msgs: &[&SolMsg]) -> SolClientReturnCode {
-        let mut arr_msg: [rsolace_sys::solClient_opaqueMsg_pt;
-            rsolace_sys::SOLCLIENT_SESSION_SEND_MULTIPLE_LIMIT as usize] =
-            [null_mut(); rsolace_sys::SOLCLIENT_SESSION_SEND_MULTIPLE_LIMIT as usize];
-        let mut num = 0;
-        for (i, msg) in msgs.iter().enumerate() {
-            arr_msg[i] = msg.get_ptr();
+        self.send_multiple_msg_written(msgs).0
+    }
+
+    /// Sends up to [`SEND_MULTIPLE_LIMIT`] messages with one
+    /// `solClient_session_sendMultipleMsg` call and returns the return code together with
+    /// the number of messages the API accepted (`numberOfMessagesWritten`).
+    ///
+    /// The accepted messages are always a prefix of `msgs`. The count equals `msgs.len()`
+    /// when the code is `Ok`; on any other code (`WouldBlock`, `NotReady`, `Fail`) part of
+    /// the slice may have been written, and only `msgs[written..]` must be resent or
+    /// dropped by the caller.
+    ///
+    /// An empty slice returns `(Ok, 0)` and more than [`SEND_MULTIPLE_LIMIT`] messages
+    /// return `(Fail, 0)`; neither calls the API. The messages stay owned by the caller and
+    /// are freed when the `SolMsg`s are dropped.
+    pub fn send_multiple_msg_written(&self, msgs: &[&SolMsg]) -> (SolClientReturnCode, usize) {
+        if msgs.is_empty() {
+            return (SolClientReturnCode::Ok, 0);
         }
+        if msgs.len() > SEND_MULTIPLE_LIMIT {
+            return (SolClientReturnCode::Fail, 0);
+        }
+        let mut arr_msg: [rsolace_sys::solClient_opaqueMsg_pt; SEND_MULTIPLE_LIMIT] =
+            [null_mut(); SEND_MULTIPLE_LIMIT];
+        for (slot, msg) in arr_msg.iter_mut().zip(msgs) {
+            *slot = msg.get_ptr();
+        }
+        let mut written: rsolace_sys::solClient_uint32_t = 0;
+        // SAFETY: the first `msgs.len()` (<= SEND_MULTIPLE_LIMIT) entries of `arr_msg` are
+        // valid message pointers borrowed from `msgs` for the duration of the call; the API
+        // copies what it sends and does not keep the pointers.
         let rt_code = unsafe {
             rsolace_sys::solClient_session_sendMultipleMsg(
                 self.inner().session_p,
-                &mut arr_msg as *mut *mut c_void,
+                arr_msg.as_mut_ptr(),
                 msgs.len() as rsolace_sys::solClient_uint32_t,
-                &mut num,
+                &mut written,
             )
         };
-        SolClientReturnCode::from_i32(rt_code).unwrap()
+        let code = SolClientReturnCode::from_i32(rt_code).unwrap_or(SolClientReturnCode::Fail);
+        // Never report more than was offered (the API guarantees it; keep slicing safe).
+        (code, (written as usize).min(msgs.len()))
     }
 
     fn send_request_unsafe_part(
