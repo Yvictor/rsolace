@@ -25,8 +25,16 @@ use kanal::{bounded, unbounded, Receiver, Sender};
 // Async kanal imports for future async support
 #[cfg(all(feature = "channel", feature = "tokio"))]
 use kanal::{bounded_async, AsyncReceiver, AsyncSender};
+#[cfg(feature = "channel")]
+use std::collections::VecDeque;
+#[cfg(feature = "channel")]
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+#[cfg(feature = "channel")]
+use std::sync::Mutex;
+#[cfg(feature = "channel")]
+use std::time::Instant;
 
 /// Maximum time `modify_client_info` will wait for the asynchronous
 /// `SOLCLIENT_SESSION_EVENT_MODIFYPROP_OK` / `_FAIL` confirmation.
@@ -39,71 +47,169 @@ const MODIFY_CLIENT_INFO_TIMEOUT_MS: u64 = 10_000;
 /// (`SOLCLIENT_SESSION_SEND_MULTIPLE_LIMIT`).
 pub const SEND_MULTIPLE_LIMIT: usize = rsolace_sys::SOLCLIENT_SESSION_SEND_MULTIPLE_LIMIT as usize;
 
-/// An in-flight async request waiting for its reply, keyed by correlation
-/// id in `async_request_reply_map`. The topic is kept so a reply that can
-/// no longer be delivered can still be logged with useful context.
+/// How long a request that the caller gave up on (timed out or cancelled)
+/// is remembered, so a reply that still arrives can be logged with its topic.
+#[cfg(feature = "channel")]
+const ABANDONED_REQUEST_TTL: Duration = Duration::from_secs(600);
+
+/// Most abandoned requests remembered at once; the oldest is forgotten first.
+#[cfg(feature = "channel")]
+const ABANDONED_REQUEST_CAP: usize = 1024;
+
+#[cfg(feature = "channel")]
+struct AbandonedRequest {
+    corr_id: String,
+    topic: String,
+    at: Instant,
+}
+
+/// Small bounded record of requests whose caller stopped waiting, keyed by
+/// correlation id. Bounded by count and by age.
+#[cfg(feature = "channel")]
+#[derive(Default)]
+struct AbandonedRequests {
+    entries: Mutex<VecDeque<AbandonedRequest>>,
+}
+
+#[cfg(feature = "channel")]
+impl AbandonedRequests {
+    fn lock(&self) -> std::sync::MutexGuard<'_, VecDeque<AbandonedRequest>> {
+        self.entries.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn prune(entries: &mut VecDeque<AbandonedRequest>, now: Instant) {
+        while let Some(front) = entries.front() {
+            if now.saturating_duration_since(front.at) > ABANDONED_REQUEST_TTL {
+                entries.pop_front();
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn record(&self, corr_id: String, topic: String) {
+        self.record_at(corr_id, topic, Instant::now());
+    }
+
+    fn record_at(&self, corr_id: String, topic: String, now: Instant) {
+        let mut entries = self.lock();
+        Self::prune(&mut entries, now);
+        while entries.len() >= ABANDONED_REQUEST_CAP {
+            entries.pop_front();
+        }
+        entries.push_back(AbandonedRequest {
+            corr_id,
+            topic,
+            at: now,
+        });
+    }
+
+    /// Remove and return the topic of an abandoned request, if remembered.
+    fn take(&self, corr_id: &str) -> Option<String> {
+        self.take_at(corr_id, Instant::now())
+    }
+
+    fn take_at(&self, corr_id: &str, now: Instant) -> Option<String> {
+        let mut entries = self.lock();
+        Self::prune(&mut entries, now);
+        let idx = entries.iter().rposition(|e| e.corr_id == corr_id)?;
+        entries.remove(idx).map(|e| e.topic)
+    }
+
+    fn clear(&self) {
+        self.lock().clear();
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.lock().len()
+    }
+}
+
+/// An in-flight request waiting for its reply, keyed by correlation id in
+/// `request_reply_map`. `id` is unique per request so removal can check it
+/// is removing its own entry and not a later request reusing the corr id.
+#[cfg(feature = "channel")]
+struct PendingSyncRequest {
+    id: u64,
+    topic: String,
+    sender: Sender<SolMsg>,
+}
+
+/// Async counterpart of [`PendingSyncRequest`], in `async_request_reply_map`.
 #[cfg(all(feature = "channel", feature = "tokio"))]
 struct PendingAsyncRequest {
+    id: u64,
     topic: String,
     sender: AsyncSender<SolMsg>,
 }
 
-/// What happened to a reply handed to a pending async request.
-#[cfg(all(feature = "channel", feature = "tokio"))]
+/// What happened to an incoming reply.
+#[cfg(feature = "channel")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AsyncReplyOutcome {
+enum ReplyOutcome {
     /// The reply was handed to the waiting receiver.
     Delivered,
-    /// The requester already gave up (receiver dropped after a timeout or
-    /// cancel), so the reply is discarded.
+    /// The requester already gave up (timed out or cancelled); the reply is
+    /// discarded and logged at WARN.
     LateReply,
     /// The reply channel was unexpectedly full; the reply is discarded.
     ChannelFull,
+    /// No pending or recently abandoned request has this corr id.
+    Unmatched,
 }
 
-#[cfg(all(feature = "channel", feature = "tokio"))]
-impl PendingAsyncRequest {
-    /// Hand `msg` to the waiting receiver without blocking (the message
-    /// callback cannot await) and log the outcome.
-    fn deliver(self, corr_id: &str, msg: SolMsg) -> AsyncReplyOutcome {
-        match self.sender.try_send(msg) {
-            Ok(true) => {
-                tracing::debug!("resp sended corrid: {}", corr_id);
-                AsyncReplyOutcome::Delivered
-            }
-            Ok(false) => {
-                tracing::error!(
-                    "reply channel full, reply discarded: corr_id={} topic={}",
-                    corr_id,
-                    self.topic
-                );
-                AsyncReplyOutcome::ChannelFull
-            }
-            Err(_) => {
-                tracing::warn!(
-                    "late reply discarded, requester already gave up (timed out or cancelled): corr_id={} topic={}",
-                    corr_id,
-                    self.topic
-                );
-                AsyncReplyOutcome::LateReply
-            }
+#[cfg(feature = "channel")]
+fn log_late_reply(corr_id: &str, topic: &str) {
+    tracing::warn!(
+        "late reply discarded, requester already gave up (timed out or cancelled): corr_id={} topic={}",
+        corr_id,
+        topic
+    );
+}
+
+#[cfg(feature = "channel")]
+fn try_send_result(
+    result: Result<bool, kanal::SendError>,
+    corr_id: &str,
+    topic: &str,
+) -> ReplyOutcome {
+    match result {
+        Ok(true) => {
+            tracing::debug!("resp sended corrid: {}", corr_id);
+            ReplyOutcome::Delivered
+        }
+        Ok(false) => {
+            tracing::error!(
+                "reply channel full, reply discarded: corr_id={} topic={}",
+                corr_id,
+                topic
+            );
+            ReplyOutcome::ChannelFull
+        }
+        Err(_) => {
+            log_late_reply(corr_id, topic);
+            ReplyOutcome::LateReply
         }
     }
 }
 
-/// Removes a pending async request from the map when dropped, so a
+/// Abandons its own pending async request when dropped, so a
 /// `send_request_async` future that is cancelled (for example by an outer
-/// `tokio::time::timeout`) does not leave its entry behind.
+/// `tokio::time::timeout`) does not leave its entry behind. Does nothing if
+/// the reply was already delivered or the corr id now belongs to another
+/// request.
 #[cfg(all(feature = "channel", feature = "tokio"))]
 struct PendingAsyncGuard<'a> {
-    map: &'a DashMap<String, PendingAsyncRequest>,
+    inner: &'a SolClientInner,
     corr_id: String,
+    id: u64,
 }
 
 #[cfg(all(feature = "channel", feature = "tokio"))]
 impl Drop for PendingAsyncGuard<'_> {
     fn drop(&mut self) {
-        self.map.remove(&self.corr_id);
+        self.inner.abandon_async_if(&self.corr_id, self.id);
     }
 }
 // #[cfg_attr(feature = "tokio", derive(Debug, Clone))]
@@ -216,10 +322,15 @@ struct SolClientInner {
     #[cfg(feature = "channel")]
     event_receiver: Receiver<SolEvent>,
     #[cfg(feature = "channel")]
-    // request_reply_map: Arc<DashMap<String, Sender<SolMsg>>>,
-    request_reply_map: DashMap<String, Sender<SolMsg>>,
+    request_reply_map: DashMap<String, PendingSyncRequest>,
     #[cfg(all(feature = "channel", feature = "tokio"))]
     async_request_reply_map: DashMap<String, PendingAsyncRequest>,
+    /// Unique id for each request put in a reply map.
+    #[cfg(feature = "channel")]
+    next_request_id: AtomicU64,
+    /// Requests whose caller gave up, so a late reply logs with its topic.
+    #[cfg(feature = "channel")]
+    abandoned_requests: AbandonedRequests,
     /// Monotonic counter used to generate unique correlation tags for
     /// non-blocking session-modify operations. Starts at 1 so a `null`
     /// correlation pointer is always distinguishable from a valid tag.
@@ -231,6 +342,64 @@ struct SolClientInner {
     /// `ModifyPropFail` outcome reported by the C API.
     #[cfg(feature = "channel")]
     modify_prop_waiters: DashMap<usize, Sender<SolClientSessionEvent>>,
+}
+
+#[cfg(feature = "channel")]
+impl SolClientInner {
+    fn next_request_id(&self) -> u64 {
+        self.next_request_id.fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// Route an incoming reply to its waiting requester, or log it as a late
+    /// reply if the requester already gave up.
+    fn dispatch_reply(&self, corr_id: &str, msg: SolMsg) -> ReplyOutcome {
+        if let Some((_, pending)) = self.request_reply_map.remove(corr_id) {
+            return try_send_result(pending.sender.try_send(msg), corr_id, &pending.topic);
+        }
+        #[cfg(feature = "tokio")]
+        if let Some((_, pending)) = self.async_request_reply_map.remove(corr_id) {
+            return try_send_result(pending.sender.try_send(msg), corr_id, &pending.topic);
+        }
+        if let Some(topic) = self.abandoned_requests.take(corr_id) {
+            log_late_reply(corr_id, &topic);
+            return ReplyOutcome::LateReply;
+        }
+        tracing::debug!("reply with no pending request: corr_id={}", corr_id);
+        ReplyOutcome::Unmatched
+    }
+
+    /// Remove whatever request is pending under `corr_id` and remember it as
+    /// abandoned.
+    fn cancel(&self, corr_id: &str) -> bool {
+        let mut removed = false;
+        if let Some((k, p)) = self.request_reply_map.remove(corr_id) {
+            self.abandoned_requests.record(k, p.topic);
+            removed = true;
+        }
+        #[cfg(feature = "tokio")]
+        if let Some((k, p)) = self.async_request_reply_map.remove(corr_id) {
+            self.abandoned_requests.record(k, p.topic);
+            removed = true;
+        }
+        removed
+    }
+
+    /// Abandon the async request under `corr_id` only if it is still the
+    /// request with this `id`. A completed request (entry gone) or a later
+    /// request that reused the corr id is left alone.
+    #[cfg(feature = "tokio")]
+    fn abandon_async_if(&self, corr_id: &str, id: u64) -> bool {
+        match self
+            .async_request_reply_map
+            .remove_if(corr_id, |_, p| p.id == id)
+        {
+            Some((k, p)) => {
+                self.abandoned_requests.record(k, p.topic);
+                true
+            }
+            None => false,
+        }
+    }
 }
 
 pub struct SolClient {
@@ -270,6 +439,8 @@ impl SolClient {
         self.inner().request_reply_map.clear();
         #[cfg(all(feature = "channel", feature = "tokio"))]
         self.inner().async_request_reply_map.clear();
+        #[cfg(feature = "channel")]
+        self.inner().abandoned_requests.clear();
         // Drop any pending modify_client_info waiters. Dropping the senders
         // closes the channels so `recv_timeout` returns immediately instead
         // of blocking the full 10s when the session is torn down.
@@ -354,6 +525,10 @@ impl SolClient {
                 // async_request_reply_map: Arc::new(DashMap::new()),
                 async_request_reply_map: DashMap::new(),
                 #[cfg(feature = "channel")]
+                next_request_id: AtomicU64::new(1),
+                #[cfg(feature = "channel")]
+                abandoned_requests: AbandonedRequests::default(),
+                #[cfg(feature = "channel")]
                 // Start at 1: 0 would round-trip to a null pointer and be
                 // indistinguishable from "no correlation supplied".
                 next_modify_prop_tag: AtomicUsize::new(1),
@@ -395,29 +570,7 @@ impl SolClient {
                         if msg.is_reply() {
                             let corr_id = msg.get_correlation_id().unwrap();
                             tracing::debug!("resp msg corrid: {}", corr_id);
-                            if let Some((_corrid, sender)) =
-                                self_ref.request_reply_map.remove(&corr_id)
-                            {
-                                {
-                                    match sender.send(msg) {
-                                        Ok(_) => {
-                                            tracing::debug!("resp sended corrid: {}", corr_id);
-                                        }
-                                        Err(e) => {
-                                            tracing::error!("send msg to channel error: {}", e);
-                                        }
-                                    }
-                                }
-                            } else if let Some((_corrid, pending)) =
-                                self_ref.async_request_reply_map.remove(&corr_id)
-                            {
-                                pending.deliver(&corr_id, msg);
-                            } else {
-                                tracing::debug!(
-                                    "reply with no pending request (cancelled or unknown): corr_id={}",
-                                    corr_id
-                                );
-                            }
+                            self_ref.dispatch_reply(&corr_id, msg);
                         } else {
                             match msg.get_reply_to() {
                                 Ok(reply_to) => {
@@ -796,14 +949,25 @@ impl SolClient {
         // let reply_msg_pt: rsolace_sys::solClient_opaqueMsg_pt = null_mut();
         if timeout == 0 {
             let corrid = msg.get_correlation_id().unwrap_or("c0".into());
+            let id = self.inner().next_request_id();
+            let topic = msg.get_topic().unwrap_or_else(|_| "unknown".into());
             {
-                self.inner().request_reply_map.insert(corrid.clone(), s);
+                self.inner().request_reply_map.insert(
+                    corrid.clone(),
+                    PendingSyncRequest {
+                        id,
+                        topic,
+                        sender: s,
+                    },
+                );
             }
             // tracing::debug!("send request with channel insert to map done");
             let (rt_code, _) = self.send_request_unsafe_part(msg, timeout);
             if rt_code != SolClientReturnCode::InProgress {
                 // No reply will ever come for a request that was not sent.
-                self.inner().request_reply_map.remove(&corrid);
+                self.inner()
+                    .request_reply_map
+                    .remove_if(&corrid, |_, p| p.id == id);
             }
             ensure!(
                 rt_code == SolClientReturnCode::InProgress,
@@ -836,6 +1000,16 @@ impl SolClient {
         &self,
         msg: &SolMsg,
     ) -> Result<AsyncReceiver<SolMsg>, SolClientError> {
+        self.send_request_async_tracked(msg).map(|(r, _, _)| r)
+    }
+
+    /// Like [`SolClient::send_request_async_receiver`], also returning the
+    /// corr id and the unique id of the pending entry.
+    #[cfg(all(feature = "channel", feature = "tokio"))]
+    fn send_request_async_tracked(
+        &self,
+        msg: &SolMsg,
+    ) -> Result<(AsyncReceiver<SolMsg>, String, u64), SolClientError> {
         // let user_p: *const c_void = self.inner() as *const _ as *const c_void;
         // tracing::debug!("send_request_async_receiver const user_p: {:?}", user_p);
         // For async implementation, we'll use kanal's async bounded channel
@@ -843,17 +1017,25 @@ impl SolClient {
 
         let corrid = msg.get_correlation_id().unwrap_or("c0".into());
         let topic = msg.get_topic().unwrap_or_else(|_| "unknown".into());
+        let id = self.inner().next_request_id();
         // Store the async sender (with its topic, for logging) in the map
         // before sending, so a fast reply always finds it.
         {
-            self.inner()
-                .async_request_reply_map
-                .insert(corrid.clone(), PendingAsyncRequest { topic, sender: s });
+            self.inner().async_request_reply_map.insert(
+                corrid.clone(),
+                PendingAsyncRequest {
+                    id,
+                    topic,
+                    sender: s,
+                },
+            );
         }
         let (rt_code, _) = self.send_request_unsafe_part(msg, 0);
         if rt_code != SolClientReturnCode::InProgress {
             // No reply will ever come for a request that was not sent.
-            self.inner().async_request_reply_map.remove(&corrid);
+            self.inner()
+                .async_request_reply_map
+                .remove_if(&corrid, |_, p| p.id == id);
         }
         ensure!(
             rt_code == SolClientReturnCode::InProgress,
@@ -863,18 +1045,19 @@ impl SolClient {
                 error: self.get_last_error_info().unwrap(),
             }
         );
-        Ok(r)
+        Ok((r, corrid, id))
     }
 
     #[cfg(all(feature = "channel", feature = "tokio"))]
     pub async fn send_request_async(&self, msg: &SolMsg) -> Result<SolMsg, SolClientError> {
         let topic = msg.get_topic().context(SolMsgSnafu)?;
-        let receiver = self.send_request_async_receiver(msg)?;
+        let (receiver, corr_id, id) = self.send_request_async_tracked(msg)?;
         // If this future is dropped before the reply arrives (outer timeout,
-        // select!, task abort), drop the pending entry with it.
+        // select!, task abort), abandon its own pending entry with it.
         let _guard = PendingAsyncGuard {
-            map: &self.inner().async_request_reply_map,
-            corr_id: msg.get_correlation_id().unwrap_or("c0".into()),
+            inner: self.inner(),
+            corr_id,
+            id,
         };
         receiver
             .recv()
@@ -894,28 +1077,20 @@ impl SolClient {
             })
     }
 
-    /// Forget a pending request by correlation id.
+    /// Stop waiting for a pending request by correlation id.
     ///
     /// Call this when the caller stops waiting for a reply obtained from
     /// [`SolClient::send_request_async_receiver`] or
     /// [`SolClient::send_request`] with `timeout == 0` (for example after its
-    /// own timeout fires). It removes the waiting entry so it does not stay
-    /// in memory if the reply never comes, and a reply that arrives later is
-    /// dropped quietly instead of being treated as an error.
+    /// own timeout fires). The waiting entry is removed so it does not stay in
+    /// memory if the reply never comes. The request is remembered for a while
+    /// (bounded by count and age), so a reply that still arrives is logged at
+    /// WARN as a late reply with its corr id and topic.
     ///
     /// Returns `true` if a pending entry was removed.
     #[cfg(feature = "channel")]
     pub fn cancel_request(&self, corr_id: &str) -> bool {
-        let removed_sync = self.inner().request_reply_map.remove(corr_id).is_some();
-        #[cfg(feature = "tokio")]
-        let removed_async = self
-            .inner()
-            .async_request_reply_map
-            .remove(corr_id)
-            .is_some();
-        #[cfg(not(feature = "tokio"))]
-        let removed_async = false;
-        removed_sync || removed_async
+        self.inner().cancel(corr_id)
     }
 
     pub fn send_cache_request(
@@ -1242,11 +1417,7 @@ mod tests {
         let msg = SolMsg::new().unwrap();
         assert!(client.inner().msg_sender.send(msg).is_ok());
 
-        let event = SolEvent::new(
-            crate::types::SolClientSessionEvent::UpNotice,
-            0,
-            "test",
-        );
+        let event = SolEvent::new(crate::types::SolClientSessionEvent::UpNotice, 0, "test");
         assert!(client.inner().event_sender.send(event).is_ok());
 
         // Receivers should get the messages we just sent
@@ -1296,67 +1467,315 @@ mod tests {
         let mut client = SolClient::new(SolClientLogLevel::Notice).unwrap();
 
         // Insert a dummy entry into request_reply_map
-        let (s, _r) = kanal::bounded(1);
+        let _r = insert_sync(&client, "test-corr-id", 1);
         client
             .inner()
-            .request_reply_map
-            .insert("test-corr-id".to_string(), s);
+            .abandoned_requests
+            .record("test-abandoned".into(), TOPIC.into());
         assert!(!client.inner().request_reply_map.is_empty());
 
         client.destroy_session();
 
         assert!(client.inner().request_reply_map.is_empty());
+        assert_eq!(client.inner().abandoned_requests.len(), 0);
+    }
+
+    #[cfg(feature = "channel")]
+    #[derive(Clone, Default)]
+    struct LogBuf(Arc<Mutex<Vec<u8>>>);
+
+    #[cfg(feature = "channel")]
+    impl std::io::Write for LogBuf {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// Run `f` with a WARN-level subscriber and return what it logged.
+    #[cfg(feature = "channel")]
+    fn capture_logs<R>(f: impl FnOnce() -> R) -> (R, String) {
+        let buf = LogBuf::default();
+        let writer = buf.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .finish();
+        let r = tracing::subscriber::with_default(subscriber, f);
+        let out = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
+        (r, out)
+    }
+
+    #[cfg(feature = "channel")]
+    const TOPIC: &str = "api/v1/data/kbars";
+
+    #[cfg(feature = "channel")]
+    fn assert_late_reply_log(log: &str, corr_id: &str) {
+        assert!(log.contains("WARN"), "log: {log}");
+        assert!(
+            log.contains(
+                "late reply discarded, requester already gave up (timed out or cancelled)"
+            ),
+            "log: {log}"
+        );
+        assert!(log.contains(&format!("corr_id={corr_id}")), "log: {log}");
+        assert!(log.contains(&format!("topic={TOPIC}")), "log: {log}");
     }
 
     #[cfg(all(feature = "channel", feature = "tokio"))]
-    fn pending(topic: &str) -> (PendingAsyncRequest, AsyncReceiver<SolMsg>) {
+    fn insert_async(client: &SolClient, corr_id: &str, id: u64) -> AsyncReceiver<SolMsg> {
         let (s, r) = bounded_async(1);
-        (
+        client.inner().async_request_reply_map.insert(
+            corr_id.to_string(),
             PendingAsyncRequest {
-                topic: topic.to_string(),
+                id,
+                topic: TOPIC.to_string(),
                 sender: s,
             },
-            r,
-        )
+        );
+        r
     }
 
-    #[cfg(all(feature = "channel", feature = "tokio"))]
-    fn request_msg(topic: &str, corr_id: &str) -> SolMsg {
-        let mut msg = SolMsg::new().unwrap();
-        msg.set_topic(topic);
-        msg.set_correlation_id(corr_id);
-        msg
+    #[cfg(feature = "channel")]
+    fn insert_sync(client: &SolClient, corr_id: &str, id: u64) -> Receiver<SolMsg> {
+        let (s, r) = bounded(1);
+        client.inner().request_reply_map.insert(
+            corr_id.to_string(),
+            PendingSyncRequest {
+                id,
+                topic: TOPIC.to_string(),
+                sender: s,
+            },
+        );
+        r
     }
 
     #[cfg(all(feature = "channel", feature = "tokio"))]
     #[test]
-    fn test_reply_delivered_to_waiting_receiver() {
-        let _client = SolClient::new(SolClientLogLevel::Notice).unwrap();
-        let (p, r) = pending("api/v1/kbars");
-        let outcome = p.deliver("corr-1", SolMsg::new().unwrap());
-        assert_eq!(outcome, AsyncReplyOutcome::Delivered);
+    fn test_async_reply_delivered() {
+        let client = SolClient::new(SolClientLogLevel::Notice).unwrap();
+        let r = insert_async(&client, "corr-ok", 1);
+        let outcome = client
+            .inner()
+            .dispatch_reply("corr-ok", SolMsg::new().unwrap());
+        assert_eq!(outcome, ReplyOutcome::Delivered);
+        assert!(r.try_recv().unwrap().is_some());
+        assert!(client.inner().async_request_reply_map.is_empty());
+    }
+
+    #[cfg(feature = "channel")]
+    #[test]
+    fn test_sync_reply_delivered() {
+        let client = SolClient::new(SolClientLogLevel::Notice).unwrap();
+        let r = insert_sync(&client, "corr-ok-sync", 1);
+        let outcome = client
+            .inner()
+            .dispatch_reply("corr-ok-sync", SolMsg::new().unwrap());
+        assert_eq!(outcome, ReplyOutcome::Delivered);
         assert!(r.try_recv().unwrap().is_some());
     }
 
     #[cfg(all(feature = "channel", feature = "tokio"))]
     #[test]
-    fn test_late_reply_after_receiver_dropped() {
-        let _client = SolClient::new(SolClientLogLevel::Notice).unwrap();
-        let (p, r) = pending("api/v1/kbars");
-        // Requester timed out and dropped its receiver before the reply came.
+    fn test_async_late_reply_after_receiver_dropped() {
+        let client = SolClient::new(SolClientLogLevel::Notice).unwrap();
+        let r = insert_async(&client, "corr-late", 1);
+        // Requester gave up and dropped its receiver without cancelling.
         drop(r);
-        let outcome = p.deliver("corr-late", SolMsg::new().unwrap());
-        assert_eq!(outcome, AsyncReplyOutcome::LateReply);
+        let (outcome, log) = capture_logs(|| {
+            client
+                .inner()
+                .dispatch_reply("corr-late", SolMsg::new().unwrap())
+        });
+        assert_eq!(outcome, ReplyOutcome::LateReply);
+        assert_late_reply_log(&log, "corr-late");
+    }
+
+    #[cfg(feature = "channel")]
+    #[test]
+    fn test_sync_late_reply_after_receiver_dropped() {
+        let client = SolClient::new(SolClientLogLevel::Notice).unwrap();
+        let r = insert_sync(&client, "corr-late-sync", 1);
+        drop(r);
+        let (outcome, log) = capture_logs(|| {
+            client
+                .inner()
+                .dispatch_reply("corr-late-sync", SolMsg::new().unwrap())
+        });
+        assert_eq!(outcome, ReplyOutcome::LateReply);
+        assert_late_reply_log(&log, "corr-late-sync");
     }
 
     #[cfg(all(feature = "channel", feature = "tokio"))]
     #[test]
     fn test_reply_channel_full() {
-        let _client = SolClient::new(SolClientLogLevel::Notice).unwrap();
-        let (p, _r) = pending("api/v1/kbars");
-        assert!(p.sender.try_send(SolMsg::new().unwrap()).unwrap());
-        let outcome = p.deliver("corr-full", SolMsg::new().unwrap());
-        assert_eq!(outcome, AsyncReplyOutcome::ChannelFull);
+        let client = SolClient::new(SolClientLogLevel::Notice).unwrap();
+        let _r = insert_async(&client, "corr-full", 1);
+        let sender = client
+            .inner()
+            .async_request_reply_map
+            .get("corr-full")
+            .unwrap()
+            .sender
+            .clone();
+        assert!(sender.try_send(SolMsg::new().unwrap()).unwrap());
+        let (outcome, log) = capture_logs(|| {
+            client
+                .inner()
+                .dispatch_reply("corr-full", SolMsg::new().unwrap())
+        });
+        assert_eq!(outcome, ReplyOutcome::ChannelFull);
+        assert!(log.contains("ERROR"), "log: {log}");
+        assert!(log.contains("corr_id=corr-full"), "log: {log}");
+        assert!(log.contains(&format!("topic={TOPIC}")), "log: {log}");
+    }
+
+    #[cfg(all(feature = "channel", feature = "tokio"))]
+    #[test]
+    fn test_reply_after_cancel_logs_late_reply_with_topic() {
+        let client = SolClient::new(SolClientLogLevel::Notice).unwrap();
+        let r = insert_async(&client, "corr-timeout", 1);
+        // Caller's own timeout fires: it cancels and drops the receiver.
+        assert!(client.cancel_request("corr-timeout"));
+        drop(r);
+        assert!(client.inner().async_request_reply_map.is_empty());
+        assert_eq!(client.inner().abandoned_requests.len(), 1);
+
+        let (outcome, log) = capture_logs(|| {
+            client
+                .inner()
+                .dispatch_reply("corr-timeout", SolMsg::new().unwrap())
+        });
+        assert_eq!(outcome, ReplyOutcome::LateReply);
+        assert_late_reply_log(&log, "corr-timeout");
+        // The abandoned record is used once and removed.
+        assert_eq!(client.inner().abandoned_requests.len(), 0);
+        assert!(!client.cancel_request("corr-timeout"));
+    }
+
+    #[cfg(feature = "channel")]
+    #[test]
+    fn test_sync_reply_after_cancel_logs_late_reply_with_topic() {
+        let client = SolClient::new(SolClientLogLevel::Notice).unwrap();
+        let _r = insert_sync(&client, "corr-timeout-sync", 1);
+        assert!(client.cancel_request("corr-timeout-sync"));
+        assert!(client.inner().request_reply_map.is_empty());
+        let (outcome, log) = capture_logs(|| {
+            client
+                .inner()
+                .dispatch_reply("corr-timeout-sync", SolMsg::new().unwrap())
+        });
+        assert_eq!(outcome, ReplyOutcome::LateReply);
+        assert_late_reply_log(&log, "corr-timeout-sync");
+        assert_eq!(client.inner().abandoned_requests.len(), 0);
+    }
+
+    #[cfg(all(feature = "channel", feature = "tokio"))]
+    #[test]
+    fn test_guard_drop_abandons_then_late_reply_warns() {
+        let client = SolClient::new(SolClientLogLevel::Notice).unwrap();
+        let _r = insert_async(&client, "corr-guard", 7);
+        drop(PendingAsyncGuard {
+            inner: client.inner(),
+            corr_id: "corr-guard".to_string(),
+            id: 7,
+        });
+        assert!(client.inner().async_request_reply_map.is_empty());
+        assert_eq!(client.inner().abandoned_requests.len(), 1);
+        let (outcome, log) = capture_logs(|| {
+            client
+                .inner()
+                .dispatch_reply("corr-guard", SolMsg::new().unwrap())
+        });
+        assert_eq!(outcome, ReplyOutcome::LateReply);
+        assert_late_reply_log(&log, "corr-guard");
+    }
+
+    #[cfg(all(feature = "channel", feature = "tokio"))]
+    #[test]
+    fn test_guard_does_not_remove_request_reusing_corr_id() {
+        let client = SolClient::new(SolClientLogLevel::Notice).unwrap();
+        // Request A is answered.
+        let ra = insert_async(&client, "corr-reuse", 1);
+        let guard_a = PendingAsyncGuard {
+            inner: client.inner(),
+            corr_id: "corr-reuse".to_string(),
+            id: 1,
+        };
+        assert_eq!(
+            client
+                .inner()
+                .dispatch_reply("corr-reuse", SolMsg::new().unwrap()),
+            ReplyOutcome::Delivered
+        );
+        assert!(ra.try_recv().unwrap().is_some());
+        // Request B reuses the corr id before A's future resumes.
+        let rb = insert_async(&client, "corr-reuse", 2);
+        drop(guard_a);
+        // B is still pending and A was not recorded as abandoned.
+        assert_eq!(
+            client
+                .inner()
+                .async_request_reply_map
+                .get("corr-reuse")
+                .map(|p| p.id),
+            Some(2)
+        );
+        assert_eq!(client.inner().abandoned_requests.len(), 0);
+        assert_eq!(
+            client
+                .inner()
+                .dispatch_reply("corr-reuse", SolMsg::new().unwrap()),
+            ReplyOutcome::Delivered
+        );
+        assert!(rb.try_recv().unwrap().is_some());
+    }
+
+    #[cfg(all(feature = "channel", feature = "tokio"))]
+    #[test]
+    fn test_guard_after_completed_request_records_nothing() {
+        let client = SolClient::new(SolClientLogLevel::Notice).unwrap();
+        let _r = insert_async(&client, "corr-done", 3);
+        client
+            .inner()
+            .dispatch_reply("corr-done", SolMsg::new().unwrap());
+        assert!(!client.inner().abandon_async_if("corr-done", 3));
+        assert_eq!(client.inner().abandoned_requests.len(), 0);
+    }
+
+    #[cfg(feature = "channel")]
+    #[test]
+    fn test_unmatched_reply_is_not_late_reply() {
+        let client = SolClient::new(SolClientLogLevel::Notice).unwrap();
+        let (outcome, log) = capture_logs(|| {
+            client
+                .inner()
+                .dispatch_reply("corr-unknown", SolMsg::new().unwrap())
+        });
+        assert_eq!(outcome, ReplyOutcome::Unmatched);
+        assert!(log.is_empty(), "log: {log}");
+    }
+
+    #[cfg(feature = "channel")]
+    #[test]
+    fn test_abandoned_requests_bounded_by_age_and_count() {
+        let rec = AbandonedRequests::default();
+        let t0 = Instant::now();
+        rec.record_at("old".into(), TOPIC.into(), t0);
+        let later = t0 + ABANDONED_REQUEST_TTL + Duration::from_secs(1);
+        assert_eq!(rec.take_at("old", later), None);
+        assert_eq!(rec.len(), 0);
+
+        for i in 0..ABANDONED_REQUEST_CAP + 1 {
+            rec.record_at(format!("c{i}"), TOPIC.into(), t0);
+        }
+        assert_eq!(rec.len(), ABANDONED_REQUEST_CAP);
+        assert_eq!(rec.take_at("c0", t0), None);
+        assert_eq!(rec.take_at("c1", t0), Some(TOPIC.to_string()));
     }
 
     #[cfg(all(feature = "channel", feature = "tokio"))]
@@ -1364,7 +1783,9 @@ mod tests {
     fn test_failed_async_send_removes_pending_entry() {
         // No session: sendRequest cannot return InProgress.
         let client = SolClient::new(SolClientLogLevel::Notice).unwrap();
-        let msg = request_msg("api/v1/kbars", "corr-fail");
+        let mut msg = SolMsg::new().unwrap();
+        msg.set_topic(TOPIC);
+        msg.set_correlation_id("corr-fail");
         assert!(client.send_request_async_receiver(&msg).is_err());
         assert!(client.inner().async_request_reply_map.is_empty());
     }
@@ -1374,49 +1795,9 @@ mod tests {
     fn test_failed_sync_send_removes_pending_entry() {
         let client = SolClient::new(SolClientLogLevel::Notice).unwrap();
         let mut msg = SolMsg::new().unwrap();
-        msg.set_topic("api/v1/kbars");
+        msg.set_topic(TOPIC);
         msg.set_correlation_id("corr-fail-sync");
         assert!(client.send_request(&msg, 0).is_err());
         assert!(client.inner().request_reply_map.is_empty());
-    }
-
-    #[cfg(all(feature = "channel", feature = "tokio"))]
-    #[test]
-    fn test_cancel_request_removes_pending_entry() {
-        let client = SolClient::new(SolClientLogLevel::Notice).unwrap();
-        let (p, _r) = pending("api/v1/kbars");
-        client
-            .inner()
-            .async_request_reply_map
-            .insert("corr-cancel".to_string(), p);
-        let (s, _r2) = bounded(1);
-        client
-            .inner()
-            .request_reply_map
-            .insert("corr-cancel-sync".to_string(), s);
-
-        assert!(client.cancel_request("corr-cancel"));
-        assert!(client.cancel_request("corr-cancel-sync"));
-        assert!(!client.cancel_request("corr-cancel"));
-        assert!(client.inner().async_request_reply_map.is_empty());
-        assert!(client.inner().request_reply_map.is_empty());
-    }
-
-    #[cfg(all(feature = "channel", feature = "tokio"))]
-    #[test]
-    fn test_pending_guard_removes_entry_on_drop() {
-        let client = SolClient::new(SolClientLogLevel::Notice).unwrap();
-        let (p, _r) = pending("api/v1/kbars");
-        client
-            .inner()
-            .async_request_reply_map
-            .insert("corr-guard".to_string(), p);
-        {
-            let _guard = PendingAsyncGuard {
-                map: &client.inner().async_request_reply_map,
-                corr_id: "corr-guard".to_string(),
-            };
-        }
-        assert!(client.inner().async_request_reply_map.is_empty());
     }
 }
