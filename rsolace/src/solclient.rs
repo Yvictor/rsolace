@@ -71,58 +71,68 @@ struct AbandonedRequests {
     entries: Mutex<VecDeque<AbandonedRequest>>,
 }
 
+/// Abandoned-request queue, borrowed under its lock.
+///
+/// Every move of a request from a pending map into this queue, and every
+/// lookup by the message callback after a pending miss, happens while this
+/// lock is held. Timestamps are taken after the lock is acquired, so the
+/// queue stays in time order and pruning from the front is enough.
 #[cfg(feature = "channel")]
-impl AbandonedRequests {
-    fn lock(&self) -> std::sync::MutexGuard<'_, VecDeque<AbandonedRequest>> {
-        self.entries.lock().unwrap_or_else(|e| e.into_inner())
-    }
+struct AbandonedQueue<'a> {
+    entries: std::sync::MutexGuard<'a, VecDeque<AbandonedRequest>>,
+    now: Instant,
+}
 
-    fn prune(entries: &mut VecDeque<AbandonedRequest>, now: Instant) {
-        while let Some(front) = entries.front() {
-            if now.saturating_duration_since(front.at) > ABANDONED_REQUEST_TTL {
-                entries.pop_front();
+#[cfg(feature = "channel")]
+impl AbandonedQueue<'_> {
+    fn prune(&mut self) {
+        while let Some(front) = self.entries.front() {
+            if self.now.saturating_duration_since(front.at) > ABANDONED_REQUEST_TTL {
+                self.entries.pop_front();
             } else {
                 break;
             }
         }
     }
 
-    fn record(&self, corr_id: String, topic: String) {
-        self.record_at(corr_id, topic, Instant::now());
-    }
-
-    fn record_at(&self, corr_id: String, topic: String, now: Instant) {
-        let mut entries = self.lock();
-        Self::prune(&mut entries, now);
-        while entries.len() >= ABANDONED_REQUEST_CAP {
-            entries.pop_front();
+    fn record(&mut self, corr_id: String, topic: String) {
+        self.prune();
+        while self.entries.len() >= ABANDONED_REQUEST_CAP {
+            self.entries.pop_front();
         }
-        entries.push_back(AbandonedRequest {
+        self.entries.push_back(AbandonedRequest {
             corr_id,
             topic,
-            at: now,
+            at: self.now,
         });
     }
 
     /// Remove and return the topic of an abandoned request, if remembered.
-    fn take(&self, corr_id: &str) -> Option<String> {
-        self.take_at(corr_id, Instant::now())
+    fn take(&mut self, corr_id: &str) -> Option<String> {
+        self.prune();
+        let idx = self.entries.iter().rposition(|e| e.corr_id == corr_id)?;
+        self.entries.remove(idx).map(|e| e.topic)
     }
+}
 
-    fn take_at(&self, corr_id: &str, now: Instant) -> Option<String> {
-        let mut entries = self.lock();
-        Self::prune(&mut entries, now);
-        let idx = entries.iter().rposition(|e| e.corr_id == corr_id)?;
-        entries.remove(idx).map(|e| e.topic)
+#[cfg(feature = "channel")]
+impl AbandonedRequests {
+    /// Lock the queue, then read the clock.
+    fn lock(&self) -> AbandonedQueue<'_> {
+        let entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
+        AbandonedQueue {
+            entries,
+            now: Instant::now(),
+        }
     }
 
     fn clear(&self) {
-        self.lock().clear();
+        self.lock().entries.clear();
     }
 
     #[cfg(test)]
     fn len(&self) -> usize {
-        self.lock().len()
+        self.lock().entries.len()
     }
 }
 
@@ -360,7 +370,11 @@ impl SolClientInner {
         if let Some((_, pending)) = self.async_request_reply_map.remove(corr_id) {
             return try_send_result(pending.sender.try_send(msg), corr_id, &pending.topic);
         }
-        if let Some(topic) = self.abandoned_requests.take(corr_id) {
+        // Checked under the abandoned lock, which cancel holds while moving a
+        // request from pending to abandoned, so a reply racing a cancel sees
+        // either the pending entry or the abandoned record.
+        let abandoned_topic = self.abandoned_requests.lock().take(corr_id);
+        if let Some(topic) = abandoned_topic {
             log_late_reply(corr_id, &topic);
             return ReplyOutcome::LateReply;
         }
@@ -371,14 +385,16 @@ impl SolClientInner {
     /// Remove whatever request is pending under `corr_id` and remember it as
     /// abandoned.
     fn cancel(&self, corr_id: &str) -> bool {
+        // Hold the abandoned lock across remove + record (see dispatch_reply).
+        let mut abandoned = self.abandoned_requests.lock();
         let mut removed = false;
         if let Some((k, p)) = self.request_reply_map.remove(corr_id) {
-            self.abandoned_requests.record(k, p.topic);
+            abandoned.record(k, p.topic);
             removed = true;
         }
         #[cfg(feature = "tokio")]
         if let Some((k, p)) = self.async_request_reply_map.remove(corr_id) {
-            self.abandoned_requests.record(k, p.topic);
+            abandoned.record(k, p.topic);
             removed = true;
         }
         removed
@@ -389,12 +405,14 @@ impl SolClientInner {
     /// request that reused the corr id is left alone.
     #[cfg(feature = "tokio")]
     fn abandon_async_if(&self, corr_id: &str, id: u64) -> bool {
+        // Hold the abandoned lock across remove + record (see dispatch_reply).
+        let mut abandoned = self.abandoned_requests.lock();
         match self
             .async_request_reply_map
             .remove_if(corr_id, |_, p| p.id == id)
         {
             Some((k, p)) => {
-                self.abandoned_requests.record(k, p.topic);
+                abandoned.record(k, p.topic);
                 true
             }
             None => false,
@@ -1471,6 +1489,7 @@ mod tests {
         client
             .inner()
             .abandoned_requests
+            .lock()
             .record("test-abandoned".into(), TOPIC.into());
         assert!(!client.inner().request_reply_map.is_empty());
 
@@ -1764,18 +1783,86 @@ mod tests {
     #[test]
     fn test_abandoned_requests_bounded_by_age_and_count() {
         let rec = AbandonedRequests::default();
-        let t0 = Instant::now();
-        rec.record_at("old".into(), TOPIC.into(), t0);
-        let later = t0 + ABANDONED_REQUEST_TTL + Duration::from_secs(1);
-        assert_eq!(rec.take_at("old", later), None);
+        let t0 = rec.lock().now;
+        rec.lock().record("old".into(), TOPIC.into());
+        {
+            let mut q = rec.lock();
+            q.now = t0 + ABANDONED_REQUEST_TTL + Duration::from_secs(1);
+            assert_eq!(q.take("old"), None);
+        }
         assert_eq!(rec.len(), 0);
 
-        for i in 0..ABANDONED_REQUEST_CAP + 1 {
-            rec.record_at(format!("c{i}"), TOPIC.into(), t0);
+        {
+            let mut q = rec.lock();
+            for i in 0..ABANDONED_REQUEST_CAP + 1 {
+                q.record(format!("c{i}"), TOPIC.into());
+            }
         }
         assert_eq!(rec.len(), ABANDONED_REQUEST_CAP);
-        assert_eq!(rec.take_at("c0", t0), None);
-        assert_eq!(rec.take_at("c1", t0), Some(TOPIC.to_string()));
+        assert_eq!(rec.lock().take("c0"), None);
+        assert_eq!(rec.lock().take("c1"), Some(TOPIC.to_string()));
+    }
+
+    #[cfg(feature = "channel")]
+    #[test]
+    fn test_abandoned_queue_stays_time_ordered_under_concurrency() {
+        let rec = Arc::new(AbandonedRequests::default());
+        let handles: Vec<_> = (0..8)
+            .map(|t| {
+                let rec = rec.clone();
+                std::thread::spawn(move || {
+                    for i in 0..100 {
+                        rec.lock().record(format!("t{t}-{i}"), TOPIC.into());
+                    }
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap();
+        }
+        let q = rec.lock();
+        assert_eq!(q.entries.len(), 800);
+        assert!(q
+            .entries
+            .iter()
+            .zip(q.entries.iter().skip(1))
+            .all(|(a, b)| a.at <= b.at));
+    }
+
+    /// A reply that races a cancel must not fall through to DEBUG: the cancel
+    /// side holds the abandoned lock from removing the pending entry until it
+    /// has recorded it, and the callback checks the record under that lock.
+    #[cfg(all(feature = "channel", feature = "tokio"))]
+    #[test]
+    fn test_reply_racing_cancel_sees_abandoned_record() {
+        let client = Arc::new(SolClient::new(SolClientLogLevel::Notice).unwrap());
+        let _r = insert_async(&client, "corr-race", 1);
+
+        // Cancel side, stopped between removing pending and recording.
+        let mut abandoned = client.inner().abandoned_requests.lock();
+        let (k, p) = client
+            .inner()
+            .async_request_reply_map
+            .remove("corr-race")
+            .unwrap();
+
+        // The reply arrives now, on the callback thread.
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let c = client.clone();
+        let reply = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            c.inner()
+                .dispatch_reply("corr-race", SolMsg::new().unwrap())
+        });
+        started_rx.recv().unwrap();
+        // Give the callback time to miss pending and block on the lock.
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(!reply.is_finished());
+
+        abandoned.record(k, p.topic);
+        drop(abandoned);
+        assert_eq!(reply.join().unwrap(), ReplyOutcome::LateReply);
+        assert_eq!(client.inner().abandoned_requests.len(), 0);
     }
 
     #[cfg(all(feature = "channel", feature = "tokio"))]
