@@ -149,10 +149,10 @@ struct SolClientInner {
     event_receiver: Receiver<SolEvent>,
     #[cfg(feature = "channel")]
     // request_reply_map: Arc<DashMap<String, Sender<SolMsg>>>,
-    request_reply_map: DashMap<String, Sender<SolMsg>>,
+    request_reply_map: DashMap<String, (String, Sender<SolMsg>)>, // corr_id -> (topic, sender)
     #[cfg(all(feature = "channel", feature = "tokio"))]
     // async_request_reply_map: Arc<DashMap<String, AsyncSender<SolMsg>>>,
-    async_request_reply_map: DashMap<String, AsyncSender<SolMsg>>,
+    async_request_reply_map: DashMap<String, (String, AsyncSender<SolMsg>)>, // corr_id -> (topic, sender)
     /// Monotonic counter used to generate unique correlation tags for
     /// non-blocking session-modify operations. Starts at 1 so a `null`
     /// correlation pointer is always distinguishable from a valid tag.
@@ -164,6 +164,39 @@ struct SolClientInner {
     /// `ModifyPropFail` outcome reported by the C API.
     #[cfg(feature = "channel")]
     modify_prop_waiters: DashMap<usize, Sender<SolClientSessionEvent>>,
+}
+
+/// Log the outcome of handing a reply to its requester's channel.
+/// `Ok(false)` means the channel was full. Returns true if delivered.
+#[cfg(feature = "channel")]
+fn log_reply_send(result: Result<bool, kanal::SendError>, corr_id: &str, topic: &str) -> bool {
+    match result {
+        Ok(true) => {
+            tracing::debug!("resp sended corrid: {}", corr_id);
+            true
+        }
+        Err(kanal::SendError::ReceiveClosed) => {
+            tracing::warn!(
+                "late reply discarded, requester already gave up (timed out or cancelled): corr_id={} topic={}",
+                corr_id,
+                topic
+            );
+            false
+        }
+        Ok(false) => {
+            tracing::error!("reply channel full: corr_id={} topic={}", corr_id, topic);
+            false
+        }
+        Err(e) => {
+            tracing::error!(
+                "send reply to channel error: {:?} corr_id={} topic={}",
+                e,
+                corr_id,
+                topic
+            );
+            false
+        }
+    }
 }
 
 pub struct SolClient {
@@ -328,34 +361,16 @@ impl SolClient {
                         if msg.is_reply() {
                             let corr_id = msg.get_correlation_id().unwrap();
                             tracing::debug!("resp msg corrid: {}", corr_id);
-                            if let Some((_corrid, sender)) =
+                            if let Some((_corrid, (topic, sender))) =
                                 self_ref.request_reply_map.remove(&corr_id)
                             {
-                                {
-                                    match sender.send(msg) {
-                                        Ok(_) => {
-                                            tracing::debug!("resp sended corrid: {}", corr_id);
-                                        }
-                                        Err(e) => {
-                                            tracing::error!("send msg to channel error: {}", e);
-                                        }
-                                    }
-                                }
-                            } else if let Some((_corrid, sender)) =
+                                log_reply_send(sender.send(msg).map(|_| true), &corr_id, &topic);
+                            } else if let Some((_corrid, (topic, sender))) =
                                 self_ref.async_request_reply_map.remove(&corr_id)
                             {
-                                {
-                                    // For async sender, we need to use try_send (non-blocking)
-                                    // since this callback cannot be async
-                                    match sender.try_send(msg) {
-                                        Ok(_) => {
-                                            tracing::debug!("resp sended corrid: {}", corr_id);
-                                        }
-                                        Err(e) => {
-                                            tracing::error!("send msg to channel error: {:?}", e);
-                                        }
-                                    }
-                                }
+                                // For async sender, we need to use try_send (non-blocking)
+                                // since this callback cannot be async
+                                log_reply_send(sender.try_send(msg), &corr_id, &topic);
                             }
                         } else {
                             match msg.get_reply_to() {
@@ -735,11 +750,17 @@ impl SolClient {
         // let reply_msg_pt: rsolace_sys::solClient_opaqueMsg_pt = null_mut();
         if timeout == 0 {
             let corrid = msg.get_correlation_id().unwrap_or("c0".into());
+            let topic = msg.get_topic().unwrap_or_default();
             {
-                self.inner().request_reply_map.insert(corrid, s);
+                self.inner()
+                    .request_reply_map
+                    .insert(corrid.clone(), (topic, s));
             }
             // tracing::debug!("send request with channel insert to map done");
             let (rt_code, _) = self.send_request_unsafe_part(msg, timeout);
+            if rt_code != SolClientReturnCode::InProgress {
+                self.inner().request_reply_map.remove(&corrid);
+            }
             ensure!(
                 rt_code == SolClientReturnCode::InProgress,
                 SendRequestSnafu {
@@ -777,11 +798,17 @@ impl SolClient {
         let (s, r) = bounded_async(1);
 
         let corrid = msg.get_correlation_id().unwrap_or("c0".into());
-        // Store async sender directly in the map
+        let topic = msg.get_topic().unwrap_or_default();
+        // Store async sender (with its topic, for logging) in the map
         {
-            self.inner().async_request_reply_map.insert(corrid, s);
+            self.inner()
+                .async_request_reply_map
+                .insert(corrid.clone(), (topic, s));
         }
         let (rt_code, _) = self.send_request_unsafe_part(msg, 0);
+        if rt_code != SolClientReturnCode::InProgress {
+            self.inner().async_request_reply_map.remove(&corrid);
+        }
         ensure!(
             rt_code == SolClientReturnCode::InProgress,
             SendRequestSnafu {
@@ -1197,11 +1224,81 @@ mod tests {
         client
             .inner()
             .request_reply_map
-            .insert("test-corr-id".to_string(), s);
+            .insert("test-corr-id".to_string(), ("t".to_string(), s));
         assert!(!client.inner().request_reply_map.is_empty());
 
         client.destroy_session();
 
+        assert!(client.inner().request_reply_map.is_empty());
+    }
+
+    #[cfg(feature = "channel")]
+    #[derive(Clone, Default)]
+    struct LogBuf(Arc<std::sync::Mutex<Vec<u8>>>);
+
+    #[cfg(feature = "channel")]
+    impl std::io::Write for LogBuf {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[cfg(feature = "channel")]
+    fn capture_logs<R>(f: impl FnOnce() -> R) -> (R, String) {
+        let buf = LogBuf::default();
+        let writer = buf.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .finish();
+        let r = tracing::subscriber::with_default(subscriber, f);
+        let out = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
+        (r, out)
+    }
+
+    #[cfg(all(feature = "channel", feature = "tokio"))]
+    #[test]
+    fn test_late_reply_after_receiver_dropped_warns_with_topic() {
+        let _client = SolClient::new(SolClientLogLevel::Notice).unwrap();
+        let (s, r) = bounded_async(1);
+        drop(r); // requester timed out and dropped its receiver
+        let (delivered, log) = capture_logs(|| {
+            log_reply_send(
+                s.try_send(SolMsg::new().unwrap()),
+                "c7",
+                "api/v1/data/kbars",
+            )
+        });
+        assert!(!delivered);
+        assert!(log.contains("WARN"), "log: {log}");
+        assert!(log.contains("late reply discarded, requester already gave up (timed out or cancelled): corr_id=c7 topic=api/v1/data/kbars"), "log: {log}");
+    }
+
+    #[cfg(all(feature = "channel", feature = "tokio"))]
+    #[test]
+    fn test_failed_async_send_removes_entry() {
+        // No session: sendRequest cannot return InProgress.
+        let client = SolClient::new(SolClientLogLevel::Notice).unwrap();
+        let mut msg = SolMsg::new().unwrap();
+        msg.set_topic("api/v1/data/kbars");
+        msg.set_correlation_id("c8");
+        assert!(client.send_request_async_receiver(&msg).is_err());
+        assert!(client.inner().async_request_reply_map.is_empty());
+    }
+
+    #[cfg(feature = "channel")]
+    #[test]
+    fn test_failed_sync_send_removes_entry() {
+        let client = SolClient::new(SolClientLogLevel::Notice).unwrap();
+        let mut msg = SolMsg::new().unwrap();
+        msg.set_topic("api/v1/data/kbars");
+        msg.set_correlation_id("c9");
+        assert!(client.send_request(&msg, 0).is_err());
         assert!(client.inner().request_reply_map.is_empty());
     }
 }
