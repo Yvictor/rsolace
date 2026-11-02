@@ -372,7 +372,8 @@ impl SolClientInner {
         }
         // Checked under the abandoned lock, which cancel holds while moving a
         // request from pending to abandoned, so a reply racing a cancel sees
-        // either the pending entry or the abandoned record.
+        // either the pending entry or the abandoned record. No sender is sent
+        // to or dropped while that lock is held.
         let abandoned_topic = self.abandoned_requests.lock().take(corr_id);
         if let Some(topic) = abandoned_topic {
             log_late_reply(corr_id, &topic);
@@ -385,18 +386,32 @@ impl SolClientInner {
     /// Remove whatever request is pending under `corr_id` and remember it as
     /// abandoned.
     fn cancel(&self, corr_id: &str) -> bool {
-        // Hold the abandoned lock across remove + record (see dispatch_reply).
-        let mut abandoned = self.abandoned_requests.lock();
-        let mut removed = false;
-        if let Some((k, p)) = self.request_reply_map.remove(corr_id) {
-            abandoned.record(k, p.topic);
-            removed = true;
+        // Senders removed under the lock are dropped only after it is
+        // released: dropping a kanal sender can wake a task synchronously, and
+        // that task must be free to call back into cancel_request.
+        let mut released_sync: Option<Sender<SolMsg>> = None;
+        #[cfg(feature = "tokio")]
+        let mut released_async: Option<AsyncSender<SolMsg>> = None;
+        {
+            // Hold the abandoned lock across remove + record (see dispatch_reply).
+            let mut abandoned = self.abandoned_requests.lock();
+            if let Some((k, p)) = self.request_reply_map.remove(corr_id) {
+                abandoned.record(k, p.topic);
+                released_sync = Some(p.sender);
+            }
+            #[cfg(feature = "tokio")]
+            if let Some((k, p)) = self.async_request_reply_map.remove(corr_id) {
+                abandoned.record(k, p.topic);
+                released_async = Some(p.sender);
+            }
         }
         #[cfg(feature = "tokio")]
-        if let Some((k, p)) = self.async_request_reply_map.remove(corr_id) {
-            abandoned.record(k, p.topic);
-            removed = true;
-        }
+        let removed = released_sync.is_some() || released_async.is_some();
+        #[cfg(not(feature = "tokio"))]
+        let removed = released_sync.is_some();
+        drop(released_sync);
+        #[cfg(feature = "tokio")]
+        drop(released_async);
         removed
     }
 
@@ -405,18 +420,18 @@ impl SolClientInner {
     /// request that reused the corr id is left alone.
     #[cfg(feature = "tokio")]
     fn abandon_async_if(&self, corr_id: &str, id: u64) -> bool {
-        // Hold the abandoned lock across remove + record (see dispatch_reply).
-        let mut abandoned = self.abandoned_requests.lock();
-        match self
-            .async_request_reply_map
-            .remove_if(corr_id, |_, p| p.id == id)
-        {
-            Some((k, p)) => {
-                abandoned.record(k, p.topic);
-                true
-            }
-            None => false,
-        }
+        let released = {
+            // Hold the abandoned lock across remove + record (see dispatch_reply).
+            let mut abandoned = self.abandoned_requests.lock();
+            self.async_request_reply_map
+                .remove_if(corr_id, |_, p| p.id == id)
+                .map(|(k, p)| {
+                    abandoned.record(k, p.topic);
+                    p.sender
+                })
+        };
+        // Dropped after the lock is released (see cancel).
+        released.is_some()
     }
 }
 
@@ -1863,6 +1878,69 @@ mod tests {
         drop(abandoned);
         assert_eq!(reply.join().unwrap(), ReplyOutcome::LateReply);
         assert_eq!(client.inner().abandoned_requests.len(), 0);
+    }
+
+    /// Dropping the pending sender wakes a receiver waiting on it. If that
+    /// wake-up re-enters cancel_request, it must not deadlock on the
+    /// abandoned lock.
+    #[cfg(all(feature = "channel", feature = "tokio"))]
+    #[test]
+    fn test_sender_dropped_outside_abandoned_lock() {
+        use std::future::Future;
+        use std::task::{Context, Poll, Wake, Waker};
+
+        struct ReentrantWaker {
+            client: Arc<SolClient>,
+            woke: std::sync::atomic::AtomicBool,
+        }
+        impl Wake for ReentrantWaker {
+            fn wake(self: Arc<Self>) {
+                self.wake_by_ref();
+            }
+            fn wake_by_ref(self: &Arc<Self>) {
+                // Would self-deadlock if the caller still held the lock.
+                self.client.cancel_request("corr-other");
+                self.woke.store(true, Ordering::SeqCst);
+            }
+        }
+
+        let client = Arc::new(SolClient::new(SolClientLogLevel::Notice).unwrap());
+        for use_guard in [false, true] {
+            let r = insert_async(&client, "corr-wake", 5);
+            let waker_state = Arc::new(ReentrantWaker {
+                client: client.clone(),
+                woke: std::sync::atomic::AtomicBool::new(false),
+            });
+            let waker = Waker::from(waker_state.clone());
+            let mut cx = Context::from_waker(&waker);
+            let mut fut = Box::pin(r.recv());
+            assert!(fut.as_mut().poll(&mut cx).is_pending());
+
+            let (tx, rx) = std::sync::mpsc::channel();
+            let c = client.clone();
+            std::thread::spawn(move || {
+                if use_guard {
+                    drop(PendingAsyncGuard {
+                        inner: c.inner(),
+                        corr_id: "corr-wake".to_string(),
+                        id: 5,
+                    });
+                } else {
+                    c.cancel_request("corr-wake");
+                }
+                tx.send(()).unwrap();
+            });
+            rx.recv_timeout(Duration::from_secs(5))
+                .expect("cancel deadlocked while dropping the sender");
+            assert!(waker_state.woke.load(Ordering::SeqCst));
+            assert!(matches!(fut.as_mut().poll(&mut cx), Poll::Ready(Err(_))));
+            assert!(client
+                .inner()
+                .abandoned_requests
+                .lock()
+                .take("corr-wake")
+                .is_some());
+        }
     }
 
     #[cfg(all(feature = "channel", feature = "tokio"))]
