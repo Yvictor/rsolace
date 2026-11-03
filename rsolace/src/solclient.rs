@@ -149,10 +149,10 @@ struct SolClientInner {
     event_receiver: Receiver<SolEvent>,
     #[cfg(feature = "channel")]
     // request_reply_map: Arc<DashMap<String, Sender<SolMsg>>>,
-    request_reply_map: DashMap<String, (String, Sender<SolMsg>)>, // corr_id -> (topic, sender)
+    request_reply_map: DashMap<String, Sender<SolMsg>>,
     #[cfg(all(feature = "channel", feature = "tokio"))]
     // async_request_reply_map: Arc<DashMap<String, AsyncSender<SolMsg>>>,
-    async_request_reply_map: DashMap<String, (String, AsyncSender<SolMsg>)>, // corr_id -> (topic, sender)
+    async_request_reply_map: DashMap<String, AsyncSender<SolMsg>>,
     /// Monotonic counter used to generate unique correlation tags for
     /// non-blocking session-modify operations. Starts at 1 so a `null`
     /// correlation pointer is always distinguishable from a valid tag.
@@ -164,6 +164,13 @@ struct SolClientInner {
     /// `ModifyPropFail` outcome reported by the C API.
     #[cfg(feature = "channel")]
     modify_prop_waiters: DashMap<usize, Sender<SolClientSessionEvent>>,
+}
+
+/// Topic of the request a reply answers: the server sets the reply's
+/// reply-to to the original request topic.
+#[cfg(feature = "channel")]
+fn reply_topic(msg: &SolMsg) -> String {
+    msg.get_reply_topic().unwrap_or_else(|_| "unknown".into())
 }
 
 /// Log the outcome of handing a reply to its requester's channel.
@@ -361,11 +368,12 @@ impl SolClient {
                         if msg.is_reply() {
                             let corr_id = msg.get_correlation_id().unwrap();
                             tracing::debug!("resp msg corrid: {}", corr_id);
-                            if let Some((_corrid, (topic, sender))) =
+                            let topic = reply_topic(&msg);
+                            if let Some((_corrid, sender)) =
                                 self_ref.request_reply_map.remove(&corr_id)
                             {
                                 log_reply_send(sender.send(msg).map(|_| true), &corr_id, &topic);
-                            } else if let Some((_corrid, (topic, sender))) =
+                            } else if let Some((_corrid, sender)) =
                                 self_ref.async_request_reply_map.remove(&corr_id)
                             {
                                 // For async sender, we need to use try_send (non-blocking)
@@ -750,11 +758,8 @@ impl SolClient {
         // let reply_msg_pt: rsolace_sys::solClient_opaqueMsg_pt = null_mut();
         if timeout == 0 {
             let corrid = msg.get_correlation_id().unwrap_or("c0".into());
-            let topic = msg.get_topic().unwrap_or_default();
             {
-                self.inner()
-                    .request_reply_map
-                    .insert(corrid.clone(), (topic, s));
+                self.inner().request_reply_map.insert(corrid.clone(), s);
             }
             // tracing::debug!("send request with channel insert to map done");
             let (rt_code, _) = self.send_request_unsafe_part(msg, timeout);
@@ -798,12 +803,11 @@ impl SolClient {
         let (s, r) = bounded_async(1);
 
         let corrid = msg.get_correlation_id().unwrap_or("c0".into());
-        let topic = msg.get_topic().unwrap_or_default();
-        // Store async sender (with its topic, for logging) in the map
+        // Store async sender directly in the map
         {
             self.inner()
                 .async_request_reply_map
-                .insert(corrid.clone(), (topic, s));
+                .insert(corrid.clone(), s);
         }
         let (rt_code, _) = self.send_request_unsafe_part(msg, 0);
         if rt_code != SolClientReturnCode::InProgress {
@@ -1224,7 +1228,7 @@ mod tests {
         client
             .inner()
             .request_reply_map
-            .insert("test-corr-id".to_string(), ("t".to_string(), s));
+            .insert("test-corr-id".to_string(), s);
         assert!(!client.inner().request_reply_map.is_empty());
 
         client.destroy_session();
@@ -1267,13 +1271,11 @@ mod tests {
         let _client = SolClient::new(SolClientLogLevel::Notice).unwrap();
         let (s, r) = bounded_async(1);
         drop(r); // requester timed out and dropped its receiver
-        let (delivered, log) = capture_logs(|| {
-            log_reply_send(
-                s.try_send(SolMsg::new().unwrap()),
-                "c7",
-                "api/v1/data/kbars",
-            )
-        });
+        let mut reply = SolMsg::new().unwrap();
+        reply.set_reply_topic("api/v1/data/kbars");
+        let topic = reply_topic(&reply);
+        assert_eq!(topic, "api/v1/data/kbars");
+        let (delivered, log) = capture_logs(|| log_reply_send(s.try_send(reply), "c7", &topic));
         assert!(!delivered);
         assert!(log.contains("WARN"), "log: {log}");
         assert!(log.contains("late reply discarded, requester already gave up (timed out or cancelled): corr_id=c7 topic=api/v1/data/kbars"), "log: {log}");
