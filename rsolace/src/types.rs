@@ -164,6 +164,75 @@ enum_from_primitive! {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum SolClientSessionCapability {
+    PubGuaranteed,
+    SubFlowGuaranteed,
+    Browser,
+    TempEndpoint,
+    Jndi,
+    Compression,
+    Selector,
+    EndpointManagement,
+    MaxGuaranteedMsgSize,
+    MaxDirectMsgSize,
+    EndpointMessageTtl,
+    QueueSubscriptions,
+    SubscriptionManager,
+    MessageEliding,
+    NoLocal,
+    PerTopicSequenceNumbering,
+    EndpointDiscardBehavior,
+    ActiveFlowIndication,
+    TransactedSession,
+    OpenMama,
+    MessageReplay,
+    CompressedSsl,
+    LongSelectors,
+    SharedSubscriptions,
+    BrReplayErrorId,
+    AdCtrlVersionMin,
+    AdCtrlVersionMax,
+    SupportsXpeSubscriptions,
+    CutThrough,
+}
+
+impl SolClientSessionCapability {
+    pub fn as_ptr(&self) -> *const std::os::raw::c_char {
+        (match self {
+            SolClientSessionCapability::PubGuaranteed => rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_PUB_GUARANTEED.as_ptr(),
+            SolClientSessionCapability::SubFlowGuaranteed => rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_SUB_FLOW_GUARANTEED.as_ptr(),
+            SolClientSessionCapability::Browser => rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_BROWSER.as_ptr(),
+            SolClientSessionCapability::TempEndpoint => rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_TEMP_ENDPOINT.as_ptr(),
+            SolClientSessionCapability::Jndi => rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_JNDI.as_ptr(),
+            SolClientSessionCapability::Compression => rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_COMPRESSION.as_ptr(),
+            SolClientSessionCapability::Selector => rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_SELECTOR.as_ptr(),
+            SolClientSessionCapability::EndpointManagement => rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_ENDPOINT_MANAGEMENT.as_ptr(),
+            SolClientSessionCapability::MaxGuaranteedMsgSize => rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_MAX_GUARANTEED_MSG_SIZE.as_ptr(),
+            SolClientSessionCapability::MaxDirectMsgSize => rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_MAX_DIRECT_MSG_SIZE.as_ptr(),
+            SolClientSessionCapability::EndpointMessageTtl => rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_ENDPOINT_MESSAGE_TTL.as_ptr(),
+            SolClientSessionCapability::QueueSubscriptions => rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_QUEUE_SUBSCRIPTIONS.as_ptr(),
+            SolClientSessionCapability::SubscriptionManager => rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_SUBSCRIPTION_MANAGER.as_ptr(),
+            SolClientSessionCapability::MessageEliding => rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_MESSAGE_ELIDING.as_ptr(),
+            SolClientSessionCapability::NoLocal => rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_NO_LOCAL.as_ptr(),
+            SolClientSessionCapability::PerTopicSequenceNumbering => rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_PER_TOPIC_SEQUENCE_NUMBERING.as_ptr(),
+            SolClientSessionCapability::EndpointDiscardBehavior => rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_ENDPOINT_DISCARD_BEHAVIOR.as_ptr(),
+            SolClientSessionCapability::ActiveFlowIndication => rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_ACTIVE_FLOW_INDICATION.as_ptr(),
+            SolClientSessionCapability::TransactedSession => rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_TRANSACTED_SESSION.as_ptr(),
+            SolClientSessionCapability::OpenMama => rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_OPENMAMA.as_ptr(),
+            SolClientSessionCapability::MessageReplay => rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_MESSAGE_REPLAY.as_ptr(),
+            SolClientSessionCapability::CompressedSsl => rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_COMPRESSED_SSL.as_ptr(),
+            SolClientSessionCapability::LongSelectors => rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_LONG_SELECTORS.as_ptr(),
+            SolClientSessionCapability::SharedSubscriptions => rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_SHARED_SUBSCRIPTIONS.as_ptr(),
+            SolClientSessionCapability::BrReplayErrorId => rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_BR_REPLAY_ERRORID.as_ptr(),
+            SolClientSessionCapability::AdCtrlVersionMin => rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_ADCTRL_VERSION_MIN.as_ptr(),
+            SolClientSessionCapability::AdCtrlVersionMax => rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_ADCTRL_VERSION_MAX.as_ptr(),
+            SolClientSessionCapability::SupportsXpeSubscriptions => rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_SUPPORTS_XPE_SUBSCRIPTIONS.as_ptr(),
+            SolClientSessionCapability::CutThrough => rsolace_sys::SOLCLIENT_SESSION_CAPABILITY_CUT_THROUGH.as_ptr(),
+        }) as *const std::os::raw::c_char
+    }
+}
+
 enum_from_primitive! {
     #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
     #[repr(i32)]

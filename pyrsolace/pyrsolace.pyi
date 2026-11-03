@@ -53,6 +53,37 @@ class SessionEvent(Enum):
     ModifyPropFail = 19
     RepublishUnackedMessages = 20
 
+class SessionCapability(Enum):
+    PubGuaranteed = "SESSION_CAPABILITY_PUB_GUARANTEED"
+    SubFlowGuaranteed = "SESSION_CAPABILITY_SUB_FLOW_GUARANTEED"
+    Browser = "SESSION_CAPABILITY_BROWSER"
+    TempEndpoint = "SESSION_CAPABILITY_TEMP_ENDPOINT"
+    Jndi = "SESSION_CAPABILITY_JNDI"
+    Compression = "SESSION_CAPABILITY_COMPRESSION"
+    Selector = "SESSION_CAPABILITY_SELECTOR"
+    EndpointManagement = "SESSION_CAPABILITY_ENDPOINT_MANAGEMENT"
+    MaxGuaranteedMsgSize = "SESSION_CAPABILITY_MAX_GUARANTEED_MSG_SIZE"
+    MaxDirectMsgSize = "SESSION_CAPABILITY_MAX_DIRECT_MSG_SIZE"
+    EndpointMessageTtl = "SESSION_CAPABILITY_ENDPOINT_MESSAGE_TTL"
+    QueueSubscriptions = "SESSION_CAPABILITY_QUEUE_SUBSCRIPTIONS"
+    SubscriptionManager = "SESSION_CAPABILITY_SUBSCRIPTION_MANAGER"
+    MessageEliding = "SESSION_CAPABILITY_MESSAGE_ELIDING"
+    NoLocal = "SESSION_CAPABILITY_NO_LOCAL"
+    PerTopicSequenceNumbering = "SESSION_CAPABILITY_PER_TOPIC_SEQUENCE_NUMBERING"
+    EndpointDiscardBehavior = "SESSION_CAPABILITY_ENDPOINT_DISCARD_BEHAVIOR"
+    ActiveFlowIndication = "SESSION_CAPABILITY_ACTIVE_FLOW_INDICATION"
+    TransactedSession = "SESSION_CAPABILITY_TRANSACTED_SESSION"
+    OpenMama = "SESSION_CAPABILITY_OPENMAMA"
+    MessageReplay = "SESSION_CAPABILITY_MESSAGE_REPLAY"
+    CompressedSsl = "SESSION_CAPABILITY_COMPRESSED_SSL"
+    LongSelectors = "SESSION_CAPABILITY_LONG_SELECTORS"
+    SharedSubscriptions = "SESSION_CAPABILITY_SHARED_SUBSCRIPTIONS"
+    BrReplayErrorId = "SESSION_CAPABILITY_BR_REPLAY_ERRORID"
+    AdCtrlVersionMin = "SESSION_CAPABILITY_ADCTRL_VERSION_MIN"
+    AdCtrlVersionMax = "SESSION_CAPABILITY_ADCTRL_VERSION_MAX"
+    SupportsXpeSubscriptions = "SESSION_CAPABILITY_SUPPORTS_XPE_SUBSCRIPTIONS"
+    CutThrough = "SESSION_CAPABILITY_CUT_THROUGH"
+
 class SubscribeFlag(Enum):
     WaitForConfirm = 2
     LocalDispatchOnly = 8
@@ -193,6 +224,22 @@ class Client:
     def unsubscribe(self, topic: str) -> ReturnCode: ...
     def subscribe_ext(self, topic: str, flag: SubscribeFlag) -> ReturnCode: ...
     def unsubscribe_ext(self, topic: str, flag: SubscribeFlag) -> ReturnCode: ...
+    def is_capable(self, capability: SessionCapability) -> bool: ...
+    def has_subscription_manager_capability(self) -> bool: ...
+    def subscribe_on_behalf_of_client(
+        self,
+        client_name: str,
+        topic: str,
+        flag: SubscribeFlag,
+        correlation_tag: Optional[int] = None,
+    ) -> ReturnCode: ...
+    def unsubscribe_on_behalf_of_client(
+        self,
+        client_name: str,
+        topic: str,
+        flag: SubscribeFlag,
+        correlation_tag: Optional[int] = None,
+    ) -> ReturnCode: ...
     def send_msg(self, msg: Msg) -> ReturnCode: ...
     def send_multiple_msg(self, msgs: List[Msg]) -> ReturnCode: ...
     def send_cache_request(
